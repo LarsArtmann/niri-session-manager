@@ -98,10 +98,18 @@ struct AppConfig {
     app_mappings: HashMap<String, Vec<String>>,
     #[serde(default, rename = "single_instance_apps")]
     single_instance: SingleInstanceAppsConfig,
+    #[serde(default, rename = "skip_apps")]
+    skip_apps: SkipAppsConfig, // New field to hold apps to skip
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct SingleInstanceAppsConfig {
+    #[serde(default)]
+    apps: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct SkipAppsConfig {
     #[serde(default)]
     apps: Vec<String>,
 }
@@ -111,6 +119,7 @@ impl Default for AppConfig {
         Self {
             app_mappings: HashMap::new(),
             single_instance: SingleInstanceAppsConfig::default(),
+            skip_apps: SkipAppsConfig::default(), 
         }
     }
 }
@@ -192,6 +201,12 @@ async fn restore_session_internal(file_path: &PathBuf, config: &Config) -> Resul
     for window in windows {
 
         let app_id = window.app_id.clone().unwrap_or_default();
+
+            // Check if the app should be skipped
+        if app_config.skip_apps.apps.contains(&app_id) {
+            log(&format!("Skipping app: {}", app_id));
+            continue; // Skip this app
+        }
 
         let should_skip = current_windows.iter().any(|w| w.app_id == Some(app_id.clone()))
             || spawned_apps.contains(&app_id);

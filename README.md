@@ -44,6 +44,13 @@ apps = [
     "zen"
 ]
 
+# Applications to skip during startup
+[skip_apps]
+apps = [
+    "discord",
+    "slack"
+]
+
 #Application remapping
 [app_mappings]
 
