@@ -1,17 +1,24 @@
 {
   config,
   lib,
-  pkgs,
   ...
 }:
-with lib;
 let
+  inherit (lib)
+    mkEnableOption
+    mkPackageOption
+    mkIf
+    getExe
+    ;
   cfg = config.services.niri-session-manager;
 in
 {
   options = {
     services.niri-session-manager = {
       enable = mkEnableOption "Niri Session Manager";
+      package = mkPackageOption { } "Niri Session Manager" {
+        nullable = true;
+      };
     };
   };
   config = mkIf cfg.enable {
@@ -25,7 +32,7 @@ in
       serviceConfig = {
         Type = "simple";
         Restart = "always";
-        ExecStart = "${getExe pkgs.niri-session-manager}";
+        ExecStart = "${getExe cfg.package}";
         PrivateTmp = true;
       };
     };
