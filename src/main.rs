@@ -1,5 +1,7 @@
+mod proc;
+
 use anyhow::{Context, Result};
-use niri_ipc::{Action, Reply, Request, Response, Window, WorkspaceReferenceArg, socket::Socket};
+use niri_ipc::{Action, Request, Response, Window, WorkspaceReferenceArg, socket::Socket};
 use std::{fs, path::PathBuf, sync::Arc};
 use chrono::{Local, SecondsFormat};
 use tokio::{
@@ -16,17 +18,16 @@ use clap::Parser;
 use std::io::Write;
 use std::collections::HashMap;
 use toml;
-
 /// Fetch the windows list
 async fn get_niri_windows() -> Result<Vec<Window>> {
-    let socket = Socket::connect().context("Failed to connect to Niri IPC socket")?;
-    let (reply, _) = socket
+    let mut socket = Socket::connect().context("Failed to connect to Niri IPC socket")?;
+    let reply = socket
         .send(Request::Windows)
         .context("Failed to retrieve windows from Niri IPC")?;
 
     match reply {
-        Reply::Ok(Response::Windows(windows)) => Ok(windows),
-        Reply::Err(error_msg) => anyhow::bail!("Niri IPC returned an error: {}", error_msg),
+        Ok(Response::Windows(windows)) => Ok(windows),
+        Err(error_msg) => anyhow::bail!("Niri IPC returned an error: {}", error_msg),
         _ => anyhow::bail!("Unexpected reply type from Niri"),
     }
 }
@@ -40,32 +41,71 @@ fn get_session_file_path() -> Result<PathBuf> {
     Ok(session_dir.join("session.json"))
 }
 
-// Define a struct that doesn't include the `title` field
 #[derive(Serialize, Deserialize)]
-struct WindowWithoutTitle {
+struct SavedWindow {
     id: u64,
     app_id: String,
     workspace_id: Option<u64>,
     is_focused: bool,
+    #[serde(default)]
+    pid: Option<i32>,
+    #[serde(default)]
+    terminal_state: Option<TerminalState>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct TerminalState {
+    child_command: Option<String>,
+    child_cwd: Option<String>,
+    original_args: Option<Vec<String>>,
 }
 
 /// Save the session to a file
 async fn save_session(file_path: &PathBuf) -> Result<()> {
     let windows = get_niri_windows().await?;
+    let app_config = load_app_config()?;
+    let terminal_config = &app_config.terminal_state;
 
-    // Create a new list of windows without the `title` field
-    let windows_without_title: Vec<WindowWithoutTitle> = windows.into_iter().map(|window| {
-        WindowWithoutTitle {
-            id: window.id,
-            app_id: window.app_id.unwrap_or_default(),
-            workspace_id: window.workspace_id,
-            is_focused: window.is_focused,
-        }
-    }).collect();
+    let saved_windows: Vec<SavedWindow> = windows
+        .into_iter()
+        .map(|window| {
+            let mut saved = SavedWindow {
+                id: window.id,
+                app_id: window.app_id.clone().unwrap_or_default(),
+                workspace_id: window.workspace_id,
+                is_focused: window.is_focused,
+                pid: window.pid,
+                terminal_state: None,
+            };
 
-//    let json_data = serde_json::to_string_pretty(&windows).context("Failed to serialize window data")?;
-    // Serialize the modified windows list to JSON
-    let json_data = serde_json::to_string_pretty(&windows_without_title)
+            if terminal_config.enabled {
+                if let Some(pid) = window.pid {
+                    if pid > 0
+                        && terminal_config
+                            .terminal_app_ids
+                            .contains(&window.app_id.clone().unwrap_or_default())
+                    {
+                        let pid_u32 = pid as u32;
+                        if let Some((child_command, child_cwd)) = proc::resolve_child_process(
+                            pid_u32,
+                            &terminal_config.shell_names,
+                            terminal_config.max_walk_depth,
+                        ) {
+                            saved.terminal_state = Some(TerminalState {
+                                child_command: Some(child_command),
+                                child_cwd: Some(child_cwd),
+                                original_args: None,
+                            });
+                        }
+                    }
+                }
+            }
+
+            saved
+        })
+        .collect();
+
+    let json_data = serde_json::to_string_pretty(&saved_windows)
         .context("Failed to serialize window data")?;
 
     fs::write(file_path, json_data).context("Failed to write session file")?;
@@ -91,15 +131,46 @@ async fn restore_session(file_path: &PathBuf, config: &Config) -> Result<()> {
     Ok(())
 }
 
-/// App launch configuration
+fn default_enabled() -> bool { true }
+fn default_terminal_app_ids() -> Vec<String> {
+    vec![
+        "kitty".into(),
+        "foot".into(),
+        "org.wezfurlong.wezterm".into(),
+        "com.mitchellh.ghostty".into(),
+        "alacritty".into(),
+    ]
+}
+fn default_shell_names() -> Vec<String> {
+    vec![
+        "fish".into(), "bash".into(), "zsh".into(), "sh".into(), "dash".into(),
+        "-fish".into(), "-bash".into(), "-zsh".into(), "-sh".into(),
+        "kitten".into(), "sudo".into(), "doas".into(),
+    ]
+}
+fn default_max_walk_depth() -> u32 { 20 }
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct AppConfig {
-    #[serde(default)]
-    app_mappings: HashMap<String, Vec<String>>,
-    #[serde(default, rename = "single_instance_apps")]
-    single_instance: SingleInstanceAppsConfig,
-    #[serde(default, rename = "skip_apps")]
-    skip_apps: SkipAppsConfig, // New field to hold apps to skip
+struct TerminalStateConfig {
+    #[serde(default = "default_enabled")]
+    enabled: bool,
+    #[serde(default = "default_terminal_app_ids")]
+    terminal_app_ids: Vec<String>,
+    #[serde(default = "default_shell_names")]
+    shell_names: Vec<String>,
+    #[serde(default = "default_max_walk_depth")]
+    max_walk_depth: u32,
+}
+
+impl Default for TerminalStateConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_enabled(),
+            terminal_app_ids: default_terminal_app_ids(),
+            shell_names: default_shell_names(),
+            max_walk_depth: default_max_walk_depth(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -114,15 +185,30 @@ struct SkipAppsConfig {
     apps: Vec<String>,
 }
 
+/// App launch configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct AppConfig {
+    #[serde(default)]
+    app_mappings: HashMap<String, Vec<String>>,
+    #[serde(default, rename = "single_instance_apps")]
+    single_instance: SingleInstanceAppsConfig,
+    #[serde(default, rename = "skip_apps")]
+    skip_apps: SkipAppsConfig,
+    #[serde(default)]
+    terminal_state: TerminalStateConfig,
+}
+
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
             app_mappings: HashMap::new(),
             single_instance: SingleInstanceAppsConfig::default(),
-            skip_apps: SkipAppsConfig::default(), 
+            skip_apps: SkipAppsConfig::default(),
+            terminal_state: TerminalStateConfig::default(),
         }
     }
 }
+
 
 /// Load app configuration from TOML file
 fn load_app_config() -> Result<AppConfig> {
@@ -158,6 +244,13 @@ apps = [
 
 # Commands with arguments
 "firefox-custom" = ["firefox", "--profile", "default-release"]
+
+# Terminal state recovery — restore running commands inside terminals
+[terminal_state]
+enabled = true
+terminal_app_ids = ["kitty", "foot", "org.wezfurlong.wezterm", "com.mitchellh.ghostty", "alacritty"]
+shell_names = ["fish", "bash", "zsh", "sh", "dash", "-fish", "-bash", "-zsh", "-sh", "kitten", "sudo", "doas"]
+max_walk_depth = 20
 "#)?;
         return Ok(AppConfig::default());
     }
@@ -173,7 +266,52 @@ apps = [
     Ok(config)
 }
 
-/// Update restore_session_internal to use app mappings
+fn build_terminal_restore_command(
+    app_id: &str,
+    child_cmd: &str,
+    child_cwd: &Option<String>,
+) -> Vec<String> {
+    let mut cmd = vec![app_id.to_string()];
+
+    if let Some(cwd) = child_cwd {
+        let home = std::env::var("HOME").unwrap_or_default();
+        if *cwd != home && !cwd.is_empty() {
+            cmd.push("--directory".to_string());
+            cmd.push(cwd.clone());
+        }
+    }
+
+    cmd.push("-e".to_string());
+    cmd.push("sh".to_string());
+    cmd.push("-c".to_string());
+    cmd.push(format!("{}; exec $SHELL", child_cmd));
+
+    cmd
+}
+
+fn build_spawn_command(
+    app_id: &str,
+    saved_window: &SavedWindow,
+    app_mappings: &HashMap<String, Vec<String>>,
+) -> Vec<String> {
+    let default_command = || {
+        app_mappings
+            .get(app_id)
+            .cloned()
+            .unwrap_or_else(|| vec![app_id.to_string()])
+    };
+
+    if let Some(ts) = &saved_window.terminal_state {
+        if let Some(child_cmd) = &ts.child_command {
+            if !child_cmd.is_empty() {
+                return build_terminal_restore_command(app_id, child_cmd, &ts.child_cwd);
+            }
+        }
+    }
+
+    default_command()
+}
+
 async fn restore_session_internal(file_path: &PathBuf, config: &Config) -> Result<()> {
     if !file_path.exists() {
         log(&format!("No previous session found at {}", file_path.display()));
@@ -187,7 +325,7 @@ async fn restore_session_internal(file_path: &PathBuf, config: &Config) -> Resul
         log(&format!("Session file at {} is empty", file_path.display()));
         return Ok(());
     }
-    let windows: Vec<Window> =
+    let saved_windows: Vec<SavedWindow> =
         serde_json::from_str(&session_data).context("Failed to parse session JSON")?;
 
     let current_windows = get_niri_windows().await?;
@@ -198,9 +336,9 @@ async fn restore_session_internal(file_path: &PathBuf, config: &Config) -> Resul
 
     let mut spawned_apps = std::collections::HashSet::new();
     
-    for window in windows {
+    for saved_window in saved_windows {
 
-        let app_id = window.app_id.clone().unwrap_or_default();
+        let app_id = saved_window.app_id.clone();
 
             // Check if the app should be skipped
         if app_config.skip_apps.apps.contains(&app_id) {
@@ -210,8 +348,8 @@ async fn restore_session_internal(file_path: &PathBuf, config: &Config) -> Resul
 
         let should_skip = current_windows.iter().any(|w| w.app_id == Some(app_id.clone()))
             || spawned_apps.contains(&app_id);
-        
-        let workspace_id = window.workspace_id;
+
+        let workspace_id = saved_window.workspace_id;
 
         // Check if app is single-instance and already running
         if app_config.single_instance.apps.contains(&app_id) && should_skip {
@@ -223,23 +361,18 @@ async fn restore_session_internal(file_path: &PathBuf, config: &Config) -> Resul
             spawned_apps.insert(app_id.clone());
         }
 
-        // Get command from app mappings or use app_id as fallback
-        let command = app_config.app_mappings
-            .get(&app_id)
-            .cloned()
-            .unwrap_or_else(|| vec![app_id.clone()]);
+        let command = build_spawn_command(&app_id, &saved_window, &app_config.app_mappings);
 
         let spawn_timeout = config.spawn_timeout;
         let handle = spawn(async move {
-            let spawn_socket = Socket::connect().context("Failed to connect to Niri IPC socket")?;
-            let (reply, _) = spawn_socket
+            let mut spawn_socket = Socket::connect().context("Failed to connect to Niri IPC socket")?;
+            let reply = spawn_socket
                 .send(Request::Action(Action::Spawn {
                     command: command.clone(),
                 }))
                 .context("Failed to send spawn request")?;
 
-            if let Reply::Ok(Response::Handled) = reply {
-                // Use configured spawn timeout
+            if let Ok(Response::Handled) = reply {
                 for _ in 0..spawn_timeout * 2 {
                     sleep(Duration::from_millis(500)).await;
                     let new_windows = get_niri_windows().await?;
@@ -247,7 +380,7 @@ async fn restore_session_internal(file_path: &PathBuf, config: &Config) -> Resul
                         .iter()
                         .find(|w| w.app_id == Some(app_id.clone()))
                     {
-                        let move_socket =
+                        let mut move_socket =
                             Socket::connect().context("Failed to connect to Niri IPC socket")?;
                         let _ = move_socket
                             .send(Request::Action(Action::MoveWindowToWorkspace {
@@ -255,6 +388,7 @@ async fn restore_session_internal(file_path: &PathBuf, config: &Config) -> Resul
                                 reference: WorkspaceReferenceArg::Id(
                                     workspace_id.unwrap_or_default(),
                                 ),
+                                focus: false,
                             }))
                             .context("Failed to move window to the workspace")?;
                         break;
