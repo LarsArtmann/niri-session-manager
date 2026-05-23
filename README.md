@@ -72,7 +72,8 @@ apps = [
 [terminal_state]
 enabled = true
 terminal_app_ids = ["kitty", "foot", "org.wezfurlong.wezterm", "com.mitchellh.ghostty", "alacritty"]
-shell_names = ["fish", "bash", "zsh", "sh", "dash", "-fish", "-bash", "-zsh", "-sh", "kitten", "sudo", "doas"]
+shell_names = ["fish", "bash", "zsh", "sh", "dash", "-fish", "-bash", "-zsh", "-sh", "sudo", "doas"]
+helper_names = ["kitten"]
 max_walk_depth = 20
 ```
 
@@ -84,8 +85,15 @@ When enabled, the session manager walks the process tree of terminal windows via
 
 For example, if `kitty` was running `btop` in `/home/user/projects`, the restored command becomes:
 ```
-kitty --directory /home/user/projects -e sh -c "btop; exec $SHELL"
+kitty --directory /home/user/projects sh -c "'btop'; exec $SHELL"
 ```
+
+Terminal-specific flags are handled automatically:
+- **kitty**: `--directory`, positional command
+- **foot**: `--working-directory`, positional command
+- **wezterm**: `start --cwd ... -- sh -c ...`
+- **ghostty**: `--working-directory=...`, `-e sh -c ...`
+- **alacritty**: `--working-directory`, `-e sh -c ...`
 
 This feature is Linux-only. On other platforms, `terminal_state` is always `None`.
 
@@ -134,3 +142,5 @@ Session data and backups are stored in:
 
 ## Future (when IPC supports it)
 - Grab window size and further details for better placement when restoring windows
+- Configurable per-terminal restore command templates
+- `--dry-run` flag to preview restore without spawning

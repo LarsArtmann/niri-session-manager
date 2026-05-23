@@ -48,9 +48,8 @@ fn is_shell(comm: &str, shell_names: &[String]) -> bool {
     shell_names.iter().any(|s| s == comm)
 }
 
-fn is_terminal_helper(comm: &str) -> bool {
-    const HELPERS: &[&str] = &["kitten"];
-    HELPERS.contains(&comm)
+fn is_helper(comm: &str, helper_names: &[String]) -> bool {
+    helper_names.iter().any(|s| s == comm)
 }
 
 #[cfg(target_os = "linux")]
@@ -70,6 +69,7 @@ fn read_stat_field(pid: u32, field: usize) -> Option<i64> {
 pub fn resolve_child_process(
     pid: u32,
     shell_names: &[String],
+    helper_names: &[String],
     max_depth: u32,
 ) -> Option<(String, String)> {
     let mut current = pid;
@@ -87,7 +87,7 @@ pub fn resolve_child_process(
                 if let Some(fg_comm) = read_comm(tpgid) {
                     if !is_shell(&fg_comm, shell_names)
                         && fg_comm != "__atexit__"
-                        && !is_terminal_helper(&fg_comm)
+                        && !is_helper(&fg_comm, helper_names)
                     {
                         let cmd = read_cmdline(tpgid)
                             .map(|args| args.join(" "))
@@ -103,7 +103,7 @@ pub fn resolve_child_process(
         current = children[0];
         let comm = read_comm(current)?;
 
-        if is_shell(&comm, shell_names) || is_terminal_helper(&comm) {
+        if is_shell(&comm, shell_names) || is_helper(&comm, helper_names) {
             continue;
         }
 
@@ -121,6 +121,7 @@ pub fn resolve_child_process(
 pub fn resolve_child_process(
     _pid: u32,
     _shell_names: &[String],
+    _helper_names: &[String],
     _max_depth: u32,
 ) -> Option<(String, String)> {
     None
