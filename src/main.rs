@@ -1,11 +1,16 @@
 mod proc;
 
 use anyhow::{Context, Result};
+use chrono::{Local, SecondsFormat};
+use clap::Parser;
 use niri_ipc::{
     Action, Reply, Request, Response, Window, Workspace, WorkspaceReferenceArg, socket::Socket,
 };
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::io::Write;
+use std::time::UNIX_EPOCH;
 use std::{fs, path::Path, sync::Arc};
-use chrono::{Local, SecondsFormat};
 use tokio::{
     select,
     signal::unix::{SignalKind, signal},
@@ -15,11 +20,6 @@ use tokio::{
     time::Duration,
     time::sleep,
 };
-use serde::{Serialize, Deserialize};
-use std::time::UNIX_EPOCH;
-use clap::Parser;
-use std::io::Write;
-use std::collections::HashMap;
 
 async fn get_niri_windows() -> Result<Vec<Window>> {
     let mut socket = Socket::connect().context("Failed to connect to Niri IPC socket")?;
@@ -70,12 +70,42 @@ struct SavedWindow {
     pid: Option<u32>,
     #[serde(default)]
     terminal_state: Option<TerminalState>,
+    #[serde(default, skip_serializing)]
+    workspace_id: Option<u64>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 struct TerminalState {
     child_command: Option<String>,
     child_cwd: Option<String>,
+}
+
+const SESSION_FORMAT_VERSION: u32 = 2;
+
+#[derive(Debug, Serialize, Deserialize)]
+struct VersionedSession {
+    version: u32,
+    windows: Vec<SavedWindow>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+enum SessionData {
+    Versioned(VersionedSession),
+    Legacy(Vec<SavedWindow>),
+}
+
+impl SessionData {
+    fn into_windows(self) -> Vec<SavedWindow> {
+        match self {
+            SessionData::Versioned(v) => v.windows,
+            SessionData::Legacy(windows) => windows,
+        }
+    }
+
+    fn is_legacy(&self) -> bool {
+        matches!(self, SessionData::Legacy(_))
+    }
 }
 
 async fn restore_session(file_path: &Path, config: &Config) -> Result<()> {
@@ -95,7 +125,9 @@ async fn restore_session(file_path: &Path, config: &Config) -> Result<()> {
     Ok(())
 }
 
-fn default_enabled() -> bool { true }
+fn default_enabled() -> bool {
+    true
+}
 fn default_terminal_app_ids() -> Vec<String> {
     vec![
         "kitty".into(),
@@ -107,15 +139,25 @@ fn default_terminal_app_ids() -> Vec<String> {
 }
 fn default_shell_names() -> Vec<String> {
     vec![
-        "fish".into(), "bash".into(), "zsh".into(), "sh".into(), "dash".into(),
-        "-fish".into(), "-bash".into(), "-zsh".into(), "-sh".into(),
-        "sudo".into(), "doas".into(),
+        "fish".into(),
+        "bash".into(),
+        "zsh".into(),
+        "sh".into(),
+        "dash".into(),
+        "-fish".into(),
+        "-bash".into(),
+        "-zsh".into(),
+        "-sh".into(),
+        "sudo".into(),
+        "doas".into(),
     ]
 }
 fn default_helper_names() -> Vec<String> {
     vec!["kitten".into()]
 }
-fn default_max_walk_depth() -> u32 { 20 }
+fn default_max_walk_depth() -> u32 {
+    20
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct TerminalStateConfig {
@@ -155,7 +197,7 @@ struct SkipAppsConfig {
     apps: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct AppConfig {
     #[serde(default)]
     app_mappings: HashMap<String, Vec<String>>,
@@ -167,26 +209,16 @@ struct AppConfig {
     terminal_state: TerminalStateConfig,
 }
 
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            app_mappings: HashMap::new(),
-            single_instance: SingleInstanceAppsConfig::default(),
-            skip_apps: SkipAppsConfig::default(),
-            terminal_state: TerminalStateConfig::default(),
-        }
-    }
-}
-
 fn load_app_config() -> Result<AppConfig> {
-    let mut config_path = dirs::config_dir()
-        .context("Failed to locate config directory")?;
+    let mut config_path = dirs::config_dir().context("Failed to locate config directory")?;
     config_path.push("niri-session-manager");
     config_path.push("config.toml");
 
     if !config_path.exists() {
         fs::create_dir_all(config_path.parent().unwrap())?;
-        fs::write(&config_path, r#"# Niri Session Manager Configuration
+        fs::write(
+            &config_path,
+            r#"# Niri Session Manager Configuration
 
 # Apps that should only have one instance
 [single_instance_apps] 
@@ -218,15 +250,14 @@ terminal_app_ids = ["kitty", "foot", "org.wezfurlong.wezterm", "com.mitchellh.gh
 shell_names = ["fish", "bash", "zsh", "sh", "dash", "-fish", "-bash", "-zsh", "-sh", "sudo", "doas"]
 helper_names = ["kitten"]
 max_walk_depth = 20
-"#)?;
+"#,
+        )?;
         return Ok(AppConfig::default());
     }
 
-    let config_str = fs::read_to_string(&config_path)
-        .context("Failed to read config file")?;
-    
-    let config: AppConfig = toml::from_str(&config_str)
-        .context("Failed to parse config file")?;
+    let config_str = fs::read_to_string(&config_path).context("Failed to read config file")?;
+
+    let config: AppConfig = toml::from_str(&config_str).context("Failed to parse config file")?;
     Ok(config)
 }
 
@@ -235,6 +266,41 @@ fn shell_escape(s: &str) -> String {
         return "''".to_string();
     }
     format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+#[cfg(target_os = "linux")]
+fn get_shell_from_passwd() -> Option<String> {
+    let status = fs::read_to_string("/proc/self/status").ok()?;
+    let uid_line = status.lines().find(|l| l.starts_with("Uid:"))?;
+    let uid = uid_line
+        .split_whitespace()
+        .nth(1)
+        .and_then(|s| s.parse::<u32>().ok())?;
+
+    let passwd = fs::read_to_string("/etc/passwd").ok()?;
+    for line in passwd.lines() {
+        let fields: Vec<&str> = line.split(':').collect();
+        if fields.len() >= 7 && fields[2].parse::<u32>().ok() == Some(uid) {
+            let shell = fields[6].trim();
+            if !shell.is_empty() {
+                return Some(shell.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn get_restore_shell() -> String {
+    if let Ok(shell) = std::env::var("SHELL") {
+        if !shell.is_empty() {
+            return shell;
+        }
+    }
+    #[cfg(target_os = "linux")]
+    if let Some(shell) = get_shell_from_passwd() {
+        return shell;
+    }
+    "/bin/sh".to_string()
 }
 
 struct TerminalProfile {
@@ -326,9 +392,9 @@ fn build_terminal_restore_command(
         cmd.push("start".to_string());
     }
 
-    let cwd_flag = child_cwd.as_ref().filter(|cwd| {
-        !cwd.is_empty() && **cwd != std::env::var("HOME").unwrap_or_default()
-    });
+    let cwd_flag = child_cwd
+        .as_ref()
+        .filter(|cwd| !cwd.is_empty() && **cwd != std::env::var("HOME").unwrap_or_default());
 
     if let Some(cwd) = cwd_flag {
         if profile.cwd_flag_separator {
@@ -343,9 +409,14 @@ fn build_terminal_restore_command(
         cmd.push(profile.cmd_flag.to_string());
     }
 
+    let restore_shell = get_restore_shell();
     cmd.push("sh".to_string());
     cmd.push("-c".to_string());
-    cmd.push(format!("{}; exec $SHELL", shell_escape(child_cmd)));
+    cmd.push(format!(
+        "{}; exec {}",
+        shell_escape(child_cmd),
+        shell_escape(&restore_shell)
+    ));
 
     cmd
 }
@@ -368,7 +439,10 @@ fn build_spawn_command(
                 let exec_name = resolve_executable_name(app_id, app_mappings);
                 let profile = TerminalProfile::from_executable(&exec_name);
                 return build_terminal_restore_command(
-                    &exec_name, &profile, child_cmd, &ts.child_cwd,
+                    &exec_name,
+                    &profile,
+                    child_cmd,
+                    &ts.child_cwd,
                 );
             }
         }
@@ -384,18 +458,13 @@ async fn resolve_terminal_state(
     let shell_names = config.shell_names.clone();
     let helper_names = config.helper_names.clone();
     let max_depth = config.max_walk_depth;
-    spawn_blocking(move || {
-        proc::resolve_child_process(pid, &shell_names, &helper_names, max_depth)
-    })
-    .await
-    .ok()
-    .flatten()
+    spawn_blocking(move || proc::resolve_child_process(pid, &shell_names, &helper_names, max_depth))
+        .await
+        .ok()
+        .flatten()
 }
 
-async fn save_session_with_terminal_state(
-    file_path: &Path,
-    app_config: &AppConfig,
-) -> Result<()> {
+async fn save_session_with_terminal_state(file_path: &Path, app_config: &AppConfig) -> Result<()> {
     let windows = get_niri_windows().await?;
     let workspaces = get_niri_workspaces().await?;
     let terminal_config = &app_config.terminal_state;
@@ -403,18 +472,23 @@ async fn save_session_with_terminal_state(
     let mut saved_windows = Vec::with_capacity(windows.len());
 
     for window in &windows {
-        let ws = workspaces.iter().find(|w| window.workspace_id == Some(w.id));
+        let ws = workspaces
+            .iter()
+            .find(|w| window.workspace_id == Some(w.id));
         let app_id = window.app_id.clone().unwrap_or_default();
-        let pid = window.pid.and_then(|p| if p > 0 { Some(p as u32) } else { None });
+        let pid = window
+            .pid
+            .and_then(|p| if p > 0 { Some(p as u32) } else { None });
 
         let terminal_state = if terminal_config.enabled {
             match pid {
                 Some(pid) if terminal_config.terminal_app_ids.contains(&app_id) => {
-                    resolve_terminal_state(pid, terminal_config).await
-                        .map(|(child_command, child_cwd)| TerminalState {
+                    resolve_terminal_state(pid, terminal_config).await.map(
+                        |(child_command, child_cwd)| TerminalState {
                             child_command: Some(child_command),
                             child_cwd: Some(child_cwd),
-                        })
+                        },
+                    )
                 }
                 _ => None,
             }
@@ -431,11 +505,16 @@ async fn save_session_with_terminal_state(
             is_focused: window.is_focused,
             pid,
             terminal_state,
+            workspace_id: None,
         });
     }
 
-    let json_data = serde_json::to_string_pretty(&saved_windows)
-        .context("Failed to serialize window data")?;
+    let session = VersionedSession {
+        version: SESSION_FORMAT_VERSION,
+        windows: saved_windows,
+    };
+    let json_data =
+        serde_json::to_string_pretty(&session).context("Failed to serialize window data")?;
 
     fs::write(file_path, json_data).context("Failed to write session file")?;
     log(&format!("Session saved to {}", file_path.display()));
@@ -444,7 +523,10 @@ async fn save_session_with_terminal_state(
 
 async fn restore_session_internal(file_path: &Path, config: &Config) -> Result<()> {
     if !file_path.exists() {
-        log(&format!("No previous session found at {}", file_path.display()));
+        log(&format!(
+            "No previous session found at {}",
+            file_path.display()
+        ));
         log("Building new session file");
         let app_config = load_app_config()?;
         save_session_with_terminal_state(file_path, &app_config).await?;
@@ -456,8 +538,21 @@ async fn restore_session_internal(file_path: &Path, config: &Config) -> Result<(
         log(&format!("Session file at {} is empty", file_path.display()));
         return Ok(());
     }
-    let saved_windows: Vec<SavedWindow> =
+    let session: SessionData =
         serde_json::from_str(&session_data).context("Failed to parse session JSON")?;
+    if session.is_legacy() {
+        log(
+            "Warning: session file uses legacy format (no version field). Consider re-saving to upgrade.",
+        );
+    }
+    let mut saved_windows = session.into_windows();
+    let has_legacy_workspace_id = saved_windows.iter().any(|w| w.workspace_id.is_some());
+    if has_legacy_workspace_id {
+        log(
+            "Warning: session file contains deprecated 'workspace_id' field. Workspace info was lost. Re-save to upgrade format.",
+        );
+    }
+    saved_windows.sort_by_key(|w| w.workspace_idx.unwrap_or(0));
 
     let current_windows = get_niri_windows().await?;
     let mut handles = Vec::new();
@@ -474,7 +569,9 @@ async fn restore_session_internal(file_path: &Path, config: &Config) -> Result<(
             continue;
         }
 
-        let should_skip = current_windows.iter().any(|w| w.app_id == Some(app_id.clone()))
+        let should_skip = current_windows
+            .iter()
+            .any(|w| w.app_id == Some(app_id.clone()))
             || spawned_apps.contains(&app_id);
 
         let workspace_idx = saved_window.workspace_idx;
@@ -494,7 +591,8 @@ async fn restore_session_internal(file_path: &Path, config: &Config) -> Result<(
 
         let spawn_timeout = config.spawn_timeout;
         let handle = spawn(async move {
-            let mut spawn_socket = Socket::connect().context("Failed to connect to Niri IPC socket")?;
+            let mut spawn_socket =
+                Socket::connect().context("Failed to connect to Niri IPC socket")?;
             let reply = spawn_socket
                 .send(Request::Action(Action::Spawn {
                     command: command.clone(),
@@ -513,10 +611,17 @@ async fn restore_session_internal(file_path: &Path, config: &Config) -> Result<(
                             Socket::connect().context("Failed to connect to Niri IPC socket")?;
 
                         if let Some(output) = &workspace_output {
-                            let _ = move_socket.send(Request::Action(Action::MoveWindowToMonitor {
-                                id: Some(new_window.id),
-                                output: output.clone(),
-                            }));
+                            let result =
+                                move_socket.send(Request::Action(Action::MoveWindowToMonitor {
+                                    id: Some(new_window.id),
+                                    output: output.clone(),
+                                }));
+                            if let Err(e) = &result {
+                                log_error(&format!(
+                                    "Warning: failed to move window {} to monitor {}: {:?}",
+                                    new_window.id, output, e
+                                ));
+                            }
                         }
 
                         let workspace_reference =
@@ -526,19 +631,26 @@ async fn restore_session_internal(file_path: &Path, config: &Config) -> Result<(
                                 WorkspaceReferenceArg::Index(workspace_idx.unwrap_or(0))
                             };
 
-                        let _ = move_socket
-                            .send(Request::Action(Action::MoveWindowToWorkspace {
+                        if let Err(e) =
+                            move_socket.send(Request::Action(Action::MoveWindowToWorkspace {
                                 window_id: Some(new_window.id),
                                 reference: workspace_reference,
                                 focus: false,
                             }))
-                            .context("Failed to move window to the workspace")?;
+                        {
+                            log_error(&format!(
+                                "Warning: failed to move window {} to workspace: {:?}",
+                                new_window.id, e
+                            ));
+                        }
                         break;
                     }
                 }
             } else {
-                log(&format!("Failed to spawn app: {} using command: {:?}",
-                    app_id, command));
+                log(&format!(
+                    "Failed to spawn app: {} using command: {:?}",
+                    app_id, command
+                ));
             }
 
             Result::<()>::Ok(())
@@ -579,12 +691,15 @@ async fn handle_shutdown_signals(shutdown_signal: Arc<Notify>) {
 async fn periodic_save_session(
     file_path: std::path::PathBuf,
     shutdown_signal: Arc<Notify>,
-    config: Config
+    config: Config,
 ) {
     let interval = Duration::from_secs(config.save_interval * 60);
     let session_dir = file_path.parent().unwrap_or(&file_path).to_path_buf();
 
-    log(&format!("Starting periodic save task (interval: {} minutes)", config.save_interval));
+    log(&format!(
+        "Starting periodic save task (interval: {} minutes)",
+        config.save_interval
+    ));
 
     loop {
         select! {
@@ -640,7 +755,8 @@ fn cleanup_old_backups(session_dir: &Path, keep_count: usize) -> Result<()> {
     let mut backups: Vec<_> = fs::read_dir(session_dir)?
         .filter_map(|entry| entry.ok())
         .filter(|entry| {
-            entry.path()
+            entry
+                .path()
                 .file_name()
                 .and_then(|n| n.to_str())
                 .map(|n| n.ends_with(".bak"))
@@ -659,14 +775,17 @@ fn cleanup_old_backups(session_dir: &Path, keep_count: usize) -> Result<()> {
             .cmp(
                 &a.metadata()
                     .and_then(|m| m.modified())
-                    .unwrap_or(UNIX_EPOCH)
+                    .unwrap_or(UNIX_EPOCH),
             )
     });
 
     for backup in backups.iter().skip(keep_count) {
         if let Err(e) = fs::remove_file(backup.path()) {
-            log_error(&format!("Failed to remove old backup {}: {}",
-                backup.path().display(), e));
+            log_error(&format!(
+                "Failed to remove old backup {}: {}",
+                backup.path().display(),
+                e
+            ));
         } else {
             log(&format!("Removed old backup: {}", backup.path().display()));
         }
@@ -716,7 +835,7 @@ async fn main() -> Result<()> {
     let save_task = spawn(periodic_save_session(
         session_file_path.clone(),
         shutdown_signal_clone,
-        config.clone()
+        config.clone(),
     ));
 
     log("Restoring previous session");
@@ -741,6 +860,11 @@ async fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn expected_exec_suffix(child_cmd: &str) -> String {
+        let shell = get_restore_shell();
+        format!("{}; exec {}", shell_escape(child_cmd), shell_escape(&shell))
+    }
 
     #[test]
     fn shell_escape_empty() {
@@ -780,11 +904,23 @@ mod tests {
     #[test]
     fn resolve_executable_from_mappings() {
         let mut mappings = HashMap::new();
-        mappings.insert("com.mitchellh.ghostty".to_string(), vec!["ghostty".to_string()]);
-        mappings.insert("org.wezfurlong.wezterm".to_string(), vec!["wezterm".to_string()]);
+        mappings.insert(
+            "com.mitchellh.ghostty".to_string(),
+            vec!["ghostty".to_string()],
+        );
+        mappings.insert(
+            "org.wezfurlong.wezterm".to_string(),
+            vec!["wezterm".to_string()],
+        );
 
-        assert_eq!(resolve_executable_name("com.mitchellh.ghostty", &mappings), "ghostty");
-        assert_eq!(resolve_executable_name("org.wezfurlong.wezterm", &mappings), "wezterm");
+        assert_eq!(
+            resolve_executable_name("com.mitchellh.ghostty", &mappings),
+            "ghostty"
+        );
+        assert_eq!(
+            resolve_executable_name("org.wezfurlong.wezterm", &mappings),
+            "wezterm"
+        );
         assert_eq!(resolve_executable_name("kitty", &mappings), "kitty");
         assert_eq!(resolve_executable_name("unknown", &mappings), "unknown");
     }
@@ -843,91 +979,143 @@ mod tests {
         assert_eq!(p.cmd_flag, "-e");
     }
 
+    fn assert_restore_command(cmd: &[String], expected_prefix: &[&str], child_cmd: &str) {
+        for (i, expected) in expected_prefix.iter().enumerate() {
+            assert_eq!(cmd[i], *expected);
+        }
+        assert_eq!(cmd[expected_prefix.len()], expected_exec_suffix(child_cmd));
+    }
+
     #[test]
     fn build_restore_kitty_with_cwd() {
         let profile = TerminalProfile::kitty();
         let cmd = build_terminal_restore_command(
-            "kitty", &profile, "btop", &Some("/home/user/projects".to_string()),
+            "kitty",
+            &profile,
+            "btop",
+            &Some("/home/user/projects".to_string()),
         );
-        assert_eq!(cmd, vec![
-            "kitty", "--directory", "/home/user/projects",
-            "sh", "-c", "'btop'; exec $SHELL"
-        ]);
+        assert_restore_command(
+            &cmd,
+            &["kitty", "--directory", "/home/user/projects", "sh", "-c"],
+            "btop",
+        );
     }
 
     #[test]
     fn build_restore_kitty_without_cwd() {
         let profile = TerminalProfile::kitty();
         let home = std::env::var("HOME").unwrap_or_default();
-        let cmd = build_terminal_restore_command(
-            "kitty", &profile, "btop", &Some(home.clone()),
-        );
-        assert_eq!(cmd, vec![
-            "kitty", "sh", "-c", "'btop'; exec $SHELL"
-        ]);
+        let cmd = build_terminal_restore_command("kitty", &profile, "btop", &Some(home.clone()));
+        assert_restore_command(&cmd, &["kitty", "sh", "-c"], "btop");
     }
 
     #[test]
     fn build_restore_wezterm_with_cwd() {
         let profile = TerminalProfile::wezterm();
         let cmd = build_terminal_restore_command(
-            "wezterm", &profile, "btop", &Some("/home/user/projects".to_string()),
+            "wezterm",
+            &profile,
+            "btop",
+            &Some("/home/user/projects".to_string()),
         );
-        assert_eq!(cmd, vec![
-            "wezterm", "start", "--cwd", "/home/user/projects",
-            "--", "sh", "-c", "'btop'; exec $SHELL"
-        ]);
+        assert_restore_command(
+            &cmd,
+            &[
+                "wezterm",
+                "start",
+                "--cwd",
+                "/home/user/projects",
+                "--",
+                "sh",
+                "-c",
+            ],
+            "btop",
+        );
     }
 
     #[test]
     fn build_restore_ghostty_with_cwd() {
         let profile = TerminalProfile::ghostty();
         let cmd = build_terminal_restore_command(
-            "ghostty", &profile, "btop", &Some("/home/user/projects".to_string()),
+            "ghostty",
+            &profile,
+            "btop",
+            &Some("/home/user/projects".to_string()),
         );
-        assert_eq!(cmd, vec![
-            "ghostty", "--working-directory=/home/user/projects",
-            "-e", "sh", "-c", "'btop'; exec $SHELL"
-        ]);
+        assert_restore_command(
+            &cmd,
+            &[
+                "ghostty",
+                "--working-directory=/home/user/projects",
+                "-e",
+                "sh",
+                "-c",
+            ],
+            "btop",
+        );
     }
 
     #[test]
     fn build_restore_foot_with_cwd() {
         let profile = TerminalProfile::foot();
         let cmd = build_terminal_restore_command(
-            "foot", &profile, "btop", &Some("/home/user/projects".to_string()),
+            "foot",
+            &profile,
+            "btop",
+            &Some("/home/user/projects".to_string()),
         );
-        assert_eq!(cmd, vec![
-            "foot", "--working-directory", "/home/user/projects",
-            "sh", "-c", "'btop'; exec $SHELL"
-        ]);
+        assert_restore_command(
+            &cmd,
+            &[
+                "foot",
+                "--working-directory",
+                "/home/user/projects",
+                "sh",
+                "-c",
+            ],
+            "btop",
+        );
     }
 
     #[test]
     fn build_restore_alacritty_with_cwd() {
         let profile = TerminalProfile::alacritty();
         let cmd = build_terminal_restore_command(
-            "alacritty", &profile, "btop", &Some("/home/user/projects".to_string()),
+            "alacritty",
+            &profile,
+            "btop",
+            &Some("/home/user/projects".to_string()),
         );
-        assert_eq!(cmd, vec![
-            "alacritty", "--working-directory", "/home/user/projects",
-            "-e", "sh", "-c", "'btop'; exec $SHELL"
-        ]);
+        assert_restore_command(
+            &cmd,
+            &[
+                "alacritty",
+                "--working-directory",
+                "/home/user/projects",
+                "-e",
+                "sh",
+                "-c",
+            ],
+            "btop",
+        );
     }
 
     #[test]
     fn build_restore_with_shell_metacharacters() {
         let profile = TerminalProfile::kitty();
-        let cmd = build_terminal_restore_command(
-            "kitty", &profile, "echo 'hello'; rm -rf /", &None,
-        );
-        assert_eq!(cmd[3], "'echo '\\''hello'\\''; rm -rf /'; exec $SHELL");
+        let cmd =
+            build_terminal_restore_command("kitty", &profile, "echo 'hello'; rm -rf /", &None);
+        assert_eq!(cmd[3], expected_exec_suffix("echo 'hello'; rm -rf /"));
     }
 
     #[test]
     fn build_spawn_command_falls_back_to_mappings() {
         let mut mappings = HashMap::new();
-        mappings.insert("com.mitchellh.ghostty".to_string(), vec!["ghostty".to_string()]);
+        mappings.insert(
+            "com.mitchellh.ghostty".to_string(),
+            vec!["ghostty".to_string()],
+        );
 
         let window = SavedWindow {
             id: 1,
@@ -938,6 +1126,7 @@ mod tests {
             is_focused: false,
             pid: None,
             terminal_state: None,
+            workspace_id: None,
         };
 
         let cmd = build_spawn_command("com.mitchellh.ghostty", &window, &mappings);
@@ -959,11 +1148,12 @@ mod tests {
                 child_command: Some("btop".to_string()),
                 child_cwd: Some("/home/user".to_string()),
             }),
+            workspace_id: None,
         };
 
         let cmd = build_spawn_command("kitty", &window, &mappings);
         assert_eq!(cmd[0], "kitty");
-        assert!(cmd.contains(&"'btop'; exec $SHELL".to_string()));
+        assert!(cmd.contains(&expected_exec_suffix("btop")));
     }
 
     #[test]
@@ -1020,6 +1210,19 @@ mod tests {
     }
 
     #[test]
+    fn saved_window_detects_legacy_workspace_id() {
+        let json = r#"{
+            "id": 42,
+            "app_id": "kitty",
+            "workspace_id": 3,
+            "is_focused": true
+        }"#;
+        let w: SavedWindow = serde_json::from_str(json).unwrap();
+        assert!(w.workspace_id.is_some());
+        assert!(w.workspace_idx.is_none());
+    }
+
+    #[test]
     fn config_default_values() {
         let c = TerminalStateConfig::default();
         assert!(c.enabled);
@@ -1027,5 +1230,75 @@ mod tests {
         assert!(c.shell_names.contains(&"fish".to_string()));
         assert!(c.helper_names.contains(&"kitten".to_string()));
         assert_eq!(c.max_walk_depth, 20);
+    }
+
+    #[test]
+    fn session_data_parses_versioned_format() {
+        let json = r#"{
+            "version": 2,
+            "windows": [
+                {"id": 1, "app_id": "kitty", "is_focused": false}
+            ]
+        }"#;
+        let session: SessionData = serde_json::from_str(json).unwrap();
+        assert!(!session.is_legacy());
+        let windows = session.into_windows();
+        assert_eq!(windows.len(), 1);
+        assert_eq!(windows[0].app_id, "kitty");
+    }
+
+    #[test]
+    fn session_data_parses_legacy_array_format() {
+        let json = r#"[
+            {"id": 1, "app_id": "kitty", "is_focused": false},
+            {"id": 2, "app_id": "firefox", "is_focused": true}
+        ]"#;
+        let session: SessionData = serde_json::from_str(json).unwrap();
+        assert!(session.is_legacy());
+        let windows = session.into_windows();
+        assert_eq!(windows.len(), 2);
+    }
+
+    #[test]
+    fn versioned_session_serializes_correctly() {
+        let session = VersionedSession {
+            version: SESSION_FORMAT_VERSION,
+            windows: vec![SavedWindow {
+                id: 42,
+                app_id: "kitty".to_string(),
+                workspace_idx: Some(1),
+                workspace_name: None,
+                workspace_output: None,
+                is_focused: false,
+                pid: Some(1234),
+                terminal_state: Some(TerminalState {
+                    child_command: Some("btop".to_string()),
+                    child_cwd: Some("/home/user".to_string()),
+                }),
+                workspace_id: None,
+            }],
+        };
+        let json = serde_json::to_string_pretty(&session).unwrap();
+        assert!(json.contains("\"version\": 2"));
+        assert!(json.contains("\"windows\""));
+        let parsed: SessionData = serde_json::from_str(&json).unwrap();
+        assert!(!parsed.is_legacy());
+    }
+
+    #[test]
+    fn get_restore_shell_returns_non_empty() {
+        let shell = get_restore_shell();
+        assert!(!shell.is_empty());
+        assert!(shell.contains('/') || shell == "/bin/sh");
+    }
+
+    #[test]
+    fn get_restore_shell_prefers_env_var() {
+        let shell = get_restore_shell();
+        if let Ok(env_shell) = std::env::var("SHELL") {
+            if !env_shell.is_empty() {
+                assert_eq!(shell, env_shell);
+            }
+        }
     }
 }

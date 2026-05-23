@@ -13,3 +13,6 @@ niri-ipc = "25.5.1"
 dirs = "5.0"
 chrono = "0.4"
 toml = "0.8"
+
+[dev-dependencies]
+tempfile = "3"

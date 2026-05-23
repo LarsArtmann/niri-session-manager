@@ -8,9 +8,15 @@ buildRustPackage (
     pname = "niri-session-manager";
     src = lib.sources.cleanSourceWith {
       src = ./.;
-      filter = path: type:
+      filter =
+        path: type:
         type == "directory"
-        || lib.any (ext: lib.hasSuffix ext (baseNameOf path)) [".rs" ".toml" ".lock" ".nix"];
+        || lib.any (ext: lib.hasSuffix ext (baseNameOf path)) [
+          ".rs"
+          ".toml"
+          ".lock"
+          ".nix"
+        ];
     };
     inherit (cargoToml.package) version;
 
