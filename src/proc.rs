@@ -88,19 +88,17 @@ fn resolve_child_process_at(
 
         if children.is_empty() {
             let tpgid = read_stat_field_at(base, current, 8).unwrap_or(0) as u32;
-            if tpgid > 0 {
-                if let Some(fg_comm) = read_comm_at(base, tpgid) {
-                    if !is_shell(&fg_comm, shell_names)
-                        && fg_comm != "__atexit__"
-                        && !is_helper(&fg_comm, helper_names)
-                    {
-                        let cmd = read_cmdline_at(base, tpgid)
-                            .map(|args| args.join(" "))
-                            .unwrap_or_default();
-                        let cwd = read_cwd_at(base, tpgid).unwrap_or_default();
-                        return Some((cmd, cwd));
-                    }
-                }
+            if tpgid > 0
+                && let Some(fg_comm) = read_comm_at(base, tpgid)
+                && !is_shell(&fg_comm, shell_names)
+                && fg_comm != "__atexit__"
+                && !is_helper(&fg_comm, helper_names)
+            {
+                let cmd = read_cmdline_at(base, tpgid)
+                    .map(|args| args.join(" "))
+                    .unwrap_or_default();
+                let cwd = read_cwd_at(base, tpgid).unwrap_or_default();
+                return Some((cmd, cwd));
             }
             break;
         }

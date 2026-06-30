@@ -291,10 +291,10 @@ fn get_shell_from_passwd() -> Option<String> {
 }
 
 fn get_restore_shell() -> String {
-    if let Ok(shell) = std::env::var("SHELL") {
-        if !shell.is_empty() {
-            return shell;
-        }
+    if let Ok(shell) = std::env::var("SHELL")
+        && !shell.is_empty()
+    {
+        return shell;
     }
     #[cfg(target_os = "linux")]
     if let Some(shell) = get_shell_from_passwd() {
@@ -433,19 +433,13 @@ fn build_spawn_command(
             .unwrap_or_else(|| vec![app_id.to_string()])
     };
 
-    if let Some(ts) = &saved_window.terminal_state {
-        if let Some(child_cmd) = &ts.child_command {
-            if !child_cmd.is_empty() {
-                let exec_name = resolve_executable_name(app_id, app_mappings);
-                let profile = TerminalProfile::from_executable(&exec_name);
-                return build_terminal_restore_command(
-                    &exec_name,
-                    &profile,
-                    child_cmd,
-                    &ts.child_cwd,
-                );
-            }
-        }
+    if let Some(ts) = &saved_window.terminal_state
+        && let Some(child_cmd) = &ts.child_command
+        && !child_cmd.is_empty()
+    {
+        let exec_name = resolve_executable_name(app_id, app_mappings);
+        let profile = TerminalProfile::from_executable(&exec_name);
+        return build_terminal_restore_command(&exec_name, &profile, child_cmd, &ts.child_cwd);
     }
 
     default_command()
@@ -1295,10 +1289,10 @@ mod tests {
     #[test]
     fn get_restore_shell_prefers_env_var() {
         let shell = get_restore_shell();
-        if let Ok(env_shell) = std::env::var("SHELL") {
-            if !env_shell.is_empty() {
-                assert_eq!(shell, env_shell);
-            }
+        if let Ok(env_shell) = std::env::var("SHELL")
+            && !env_shell.is_empty()
+        {
+            assert_eq!(shell, env_shell);
         }
     }
 }
