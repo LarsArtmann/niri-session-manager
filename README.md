@@ -84,7 +84,8 @@ If no configuration file exists, one will be created with example mappings.
 When enabled, the session manager walks the process tree of terminal windows via `/proc` to find foreground child processes (skipping shells like `fish`, `bash`, `zsh`). On restore, it re-launches the terminal with the original command and working directory.
 
 For example, if `kitty` was running `btop` in `/home/user/projects`, the restored command becomes:
-```
+
+```bash
 kitty --directory /home/user/projects sh -c "'btop'; exec $SHELL"
 ```
 

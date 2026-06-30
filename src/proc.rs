@@ -72,7 +72,7 @@ fn resolve_child_process_at(
     shell_names: &[String],
     helper_names: &[String],
     max_depth: u32,
-) -> Option<(String, String)> {
+) -> Option<(Vec<String>, String)> {
     let mut current = pid;
 
     for depth in 0..max_depth {
@@ -85,44 +85,47 @@ fn resolve_child_process_at(
         }
 
         let children = get_children_at(base, current);
+        let tpgid = read_stat_field_at(base, current, 8).unwrap_or(0) as u32;
 
         if children.is_empty() {
-            let tpgid = read_stat_field_at(base, current, 8).unwrap_or(0) as u32;
             if tpgid > 0
                 && let Some(fg_comm) = read_comm_at(base, tpgid)
                 && !is_shell(&fg_comm, shell_names)
                 && fg_comm != "__atexit__"
                 && !is_helper(&fg_comm, helper_names)
             {
-                let cmd = read_cmdline_at(base, tpgid)
-                    .map(|args| args.join(" "))
-                    .unwrap_or_default();
+                let cmd = read_cmdline_at(base, tpgid).unwrap_or_default();
                 let cwd = read_cwd_at(base, tpgid).unwrap_or_default();
                 return Some((cmd, cwd));
             }
             break;
         }
 
-        current = children[0];
-        let comm = match read_comm_at(base, current) {
+        // Prefer the foreground child (matching tpgid); fall back to first child.
+        let next_pid = children
+            .iter()
+            .copied()
+            .find(|&c| tpgid > 0 && c == tpgid)
+            .unwrap_or(children[0]);
+
+        let comm = match read_comm_at(base, next_pid) {
             Some(c) => c,
             None => {
                 eprintln!(
                     "Warning: [proc] could not read comm for PID {} (child of {})",
-                    current, children[0]
+                    next_pid, current
                 );
                 return None;
             }
         };
 
         if is_shell(&comm, shell_names) || is_helper(&comm, helper_names) {
+            current = next_pid;
             continue;
         }
 
-        let cmd = read_cmdline_at(base, current)
-            .map(|args| args.join(" "))
-            .unwrap_or_default();
-        let cwd = read_cwd_at(base, current).unwrap_or_default();
+        let cmd = read_cmdline_at(base, next_pid).unwrap_or_default();
+        let cwd = read_cwd_at(base, next_pid).unwrap_or_default();
         return Some((cmd, cwd));
     }
 
@@ -135,7 +138,7 @@ pub fn resolve_child_process(
     shell_names: &[String],
     helper_names: &[String],
     max_depth: u32,
-) -> Option<(String, String)> {
+) -> Option<(Vec<String>, String)> {
     resolve_child_process_at(
         Path::new("/proc"),
         pid,
@@ -151,7 +154,7 @@ pub fn resolve_child_process(
     _shell_names: &[String],
     _helper_names: &[String],
     _max_depth: u32,
-) -> Option<(String, String)> {
+) -> Option<(Vec<String>, String)> {
     None
 }
 
@@ -218,7 +221,10 @@ mod tests {
         let shell_names = vec!["fish".to_string(), "bash".to_string()];
         let helper_names: Vec<String> = vec![];
         let result = resolve_child_process_at(tmp.path(), 1000, &shell_names, &helper_names, 20);
-        assert_eq!(result, Some(("btop".to_string(), "/home/user".to_string())));
+        assert_eq!(
+            result,
+            Some((vec!["btop".to_string()], "/home/user".to_string()))
+        );
     }
 
     #[test]
@@ -247,7 +253,7 @@ mod tests {
         assert_eq!(
             result,
             Some((
-                "nvim /path/to/file".to_string(),
+                vec!["nvim".to_string(), "/path/to/file".to_string()],
                 "/home/user/projects".to_string()
             ))
         );
@@ -276,7 +282,10 @@ mod tests {
         let shell_names: Vec<String> = vec![];
         let helper_names = vec!["kitten".to_string()];
         let result = resolve_child_process_at(tmp.path(), 1000, &shell_names, &helper_names, 20);
-        assert_eq!(result, Some(("btop".to_string(), "/home/user".to_string())));
+        assert_eq!(
+            result,
+            Some((vec!["btop".to_string()], "/home/user".to_string()))
+        );
     }
 
     #[test]
@@ -362,7 +371,44 @@ mod tests {
         let shell_names = vec!["fish".to_string()];
         let helper_names: Vec<String> = vec![];
         let result = resolve_child_process_at(tmp.path(), 1000, &shell_names, &helper_names, 20);
-        assert_eq!(result, Some(("btop".to_string(), "/home/user".to_string())));
+        assert_eq!(
+            result,
+            Some((vec!["btop".to_string()], "/home/user".to_string()))
+        );
+    }
+
+    #[test]
+    fn resolve_prefers_foreground_child_over_first_child() {
+        let tmp = tempfile::tempdir().unwrap();
+
+        let kitty_dir = create_fake_proc_dir(tmp.path(), 1000);
+        write_cmdline(&kitty_dir, &["kitty"]);
+        write_comm(&kitty_dir, "kitty");
+        write_children(&kitty_dir, &[1001]);
+
+        let fish_dir = create_fake_proc_dir(tmp.path(), 1001);
+        write_cmdline(&fish_dir, &["fish"]);
+        write_comm(&fish_dir, "fish");
+        write_children(&fish_dir, &[1002, 1003]);
+        // tpgid (field 8) points to 1003 = the foreground process
+        fs::write(fish_dir.join("stat"), "1001 (fish) S 0 0 0 0 1003\n").unwrap();
+
+        let htop_dir = create_fake_proc_dir(tmp.path(), 1002);
+        write_cmdline(&htop_dir, &["htop"]);
+        write_comm(&htop_dir, "htop");
+
+        let btop_dir = create_fake_proc_dir(tmp.path(), 1003);
+        write_cmdline(&btop_dir, &["btop"]);
+        write_comm(&btop_dir, "btop");
+        symlink("/home/user", btop_dir.join("cwd")).unwrap();
+
+        let shell_names = vec!["fish".to_string()];
+        let helper_names: Vec<String> = vec![];
+        let result = resolve_child_process_at(tmp.path(), 1000, &shell_names, &helper_names, 20);
+        assert_eq!(
+            result,
+            Some((vec!["btop".to_string()], "/home/user".to_string()))
+        );
     }
 
     #[test]
