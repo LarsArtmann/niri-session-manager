@@ -1552,9 +1552,73 @@ mod tests {
     fn atomic_write_creates_parent_dirs() {
         let tmp = tempfile::tempdir().unwrap();
         let nested = tmp.path().join("a/b/c/session.json");
-        // atomic_write uses fs::File::create which requires parent dirs
-        // This documents that behavior
         let result = atomic_write(&nested, "data");
         assert!(result.is_err(), "should fail without parent dirs");
+    }
+
+    #[test]
+    fn app_config_parses_full_toml() {
+        let toml = r#"
+[app_mappings]
+"vesktop" = ["flatpak", "run", "dev.vencord.Vesktop"]
+"com.mitchellh.ghostty" = ["ghostty"]
+
+[single_instance_apps]
+apps = ["firefox", "zen"]
+
+[skip_apps]
+apps = ["discord"]
+
+[terminal_state]
+enabled = true
+terminal_app_ids = ["kitty", "foot"]
+shell_names = ["fish", "bash"]
+helper_names = ["kitten"]
+max_walk_depth = 15
+"#;
+        let config: AppConfig = toml::from_str(toml).unwrap();
+        assert_eq!(config.app_mappings.len(), 2);
+        assert_eq!(
+            config.app_mappings.get("vesktop"),
+            Some(&vec![
+                "flatpak".into(),
+                "run".into(),
+                "dev.vencord.Vesktop".into()
+            ])
+        );
+        assert_eq!(config.single_instance.apps, vec!["firefox", "zen"]);
+        assert_eq!(config.skip_apps.apps, vec!["discord"]);
+        assert!(config.terminal_state.enabled);
+        assert_eq!(config.terminal_state.max_walk_depth, 15);
+    }
+
+    #[test]
+    fn app_config_parses_empty_toml() {
+        let config: AppConfig = toml::from_str("").unwrap();
+        assert!(config.app_mappings.is_empty());
+        assert!(config.single_instance.apps.is_empty());
+        assert!(config.skip_apps.apps.is_empty());
+        assert!(config.terminal_state.enabled); // defaults to true
+    }
+
+    #[test]
+    fn app_config_parses_partial_toml() {
+        let toml = r#"
+[app_mappings]
+"firefox" = ["firefox"]
+"#;
+        let config: AppConfig = toml::from_str(toml).unwrap();
+        assert_eq!(config.app_mappings.len(), 1);
+        assert!(config.single_instance.apps.is_empty());
+        assert!(config.terminal_state.enabled);
+    }
+
+    #[test]
+    fn terminal_state_config_defaults() {
+        let config: TerminalStateConfig = toml::from_str("").unwrap();
+        assert!(config.enabled);
+        assert!(config.terminal_app_ids.contains(&"kitty".to_string()));
+        assert!(config.shell_names.contains(&"fish".to_string()));
+        assert_eq!(config.max_walk_depth, 20);
     }
 }
