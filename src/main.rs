@@ -59,16 +59,35 @@ fn get_session_file_path() -> Result<std::path::PathBuf> {
     Ok(session_dir.join("session.json"))
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+struct WorkspaceInfo {
+    #[serde(default, alias = "workspace_idx")]
+    idx: Option<u8>,
+    #[serde(default, alias = "workspace_name")]
+    name: Option<String>,
+    #[serde(default, alias = "workspace_output")]
+    output: Option<String>,
+}
+
+impl WorkspaceInfo {
+    fn from_workspace(ws: Option<&Workspace>) -> Self {
+        match ws {
+            Some(w) => Self {
+                idx: Some(w.idx),
+                name: w.name.clone(),
+                output: w.output.clone(),
+            },
+            None => Self::default(),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 struct SavedWindow {
     id: u64,
     app_id: String,
-    #[serde(default)]
-    workspace_idx: Option<u8>,
-    #[serde(default)]
-    workspace_name: Option<String>,
-    #[serde(default)]
-    workspace_output: Option<String>,
+    #[serde(default, flatten)]
+    workspace: WorkspaceInfo,
     is_focused: bool,
     #[serde(default)]
     pid: Option<u32>,
@@ -518,9 +537,7 @@ async fn save_session_with_terminal_state(file_path: &Path, app_config: &AppConf
         saved_windows.push(SavedWindow {
             id: window.id,
             app_id: app_id.clone(),
-            workspace_idx: ws.map(|w| w.idx),
-            workspace_name: ws.and_then(|w| w.name.clone()),
-            workspace_output: ws.and_then(|w| w.output.clone()),
+            workspace: WorkspaceInfo::from_workspace(ws),
             is_focused: window.is_focused,
             pid,
             terminal_state,
@@ -581,7 +598,7 @@ async fn restore_session_internal(
         warn!("Session file uses legacy format (no version field). Consider re-saving to upgrade.");
     }
     let mut saved_windows = session.into_windows();
-    saved_windows.sort_by_key(|w| w.workspace_idx.unwrap_or(0));
+    saved_windows.sort_by_key(|w| w.workspace.idx.unwrap_or(0));
 
     let current_windows = get_niri_windows().await?;
     let claimed_window_ids: Arc<Mutex<HashSet<u64>>> =
@@ -603,9 +620,7 @@ async fn restore_session_internal(
             .any(|w| w.app_id == Some(app_id.clone()))
             || spawned_apps.contains(&app_id);
 
-        let workspace_idx = saved_window.workspace_idx;
-        let workspace_name = saved_window.workspace_name.clone();
-        let workspace_output = saved_window.workspace_output.clone();
+        let workspace = saved_window.workspace.clone();
 
         if app_config.single_instance.apps.contains(&app_id) && should_skip {
             info!("Skipping single-instance app: {}", app_id);
@@ -647,7 +662,7 @@ async fn restore_session_internal(
                         let mut move_socket =
                             Socket::connect().context("Failed to connect to Niri IPC socket")?;
 
-                        if let Some(output) = &workspace_output {
+                        if let Some(output) = &workspace.output {
                             let result =
                                 move_socket.send(Request::Action(Action::MoveWindowToMonitor {
                                     id: Some(win_id),
@@ -662,10 +677,10 @@ async fn restore_session_internal(
                         }
 
                         let workspace_reference =
-                            if let Some(name) = workspace_name.as_ref().filter(|n| !n.is_empty()) {
+                            if let Some(name) = workspace.name.as_ref().filter(|n| !n.is_empty()) {
                                 WorkspaceReferenceArg::Name(name.clone())
                             } else {
-                                WorkspaceReferenceArg::Index(workspace_idx.unwrap_or(0))
+                                WorkspaceReferenceArg::Index(workspace.idx.unwrap_or(0))
                             };
 
                         if let Err(e) =
@@ -1248,9 +1263,7 @@ mod tests {
         let window = SavedWindow {
             id: 1,
             app_id: "com.mitchellh.ghostty".to_string(),
-            workspace_idx: None,
-            workspace_name: None,
-            workspace_output: None,
+            workspace: WorkspaceInfo::default(),
             is_focused: false,
             pid: None,
             terminal_state: None,
@@ -1266,9 +1279,10 @@ mod tests {
         let window = SavedWindow {
             id: 1,
             app_id: "kitty".to_string(),
-            workspace_idx: Some(0),
-            workspace_name: None,
-            workspace_output: None,
+            workspace: WorkspaceInfo {
+                idx: Some(0),
+                ..Default::default()
+            },
             is_focused: true,
             pid: Some(1234),
             terminal_state: Some(TerminalState {
@@ -1294,9 +1308,9 @@ mod tests {
         let w: SavedWindow = serde_json::from_str(json).unwrap();
         assert_eq!(w.id, 42);
         assert_eq!(w.app_id, "kitty");
-        assert_eq!(w.workspace_idx, None);
-        assert_eq!(w.workspace_name, None);
-        assert_eq!(w.workspace_output, None);
+        assert_eq!(w.workspace.idx, None);
+        assert_eq!(w.workspace.name, None);
+        assert_eq!(w.workspace.output, None);
         assert!(w.terminal_state.is_none());
         assert!(w.pid.is_none());
     }
@@ -1317,9 +1331,9 @@ mod tests {
             }
         }"#;
         let w: SavedWindow = serde_json::from_str(json).unwrap();
-        assert_eq!(w.workspace_idx, Some(2));
-        assert_eq!(w.workspace_name, Some("dev".to_string()));
-        assert_eq!(w.workspace_output, Some("eDP-1".to_string()));
+        assert_eq!(w.workspace.idx, Some(2));
+        assert_eq!(w.workspace.name, Some("dev".to_string()));
+        assert_eq!(w.workspace.output, Some("eDP-1".to_string()));
         assert_eq!(w.pid, Some(1234));
         let ts = w.terminal_state.unwrap();
         assert_eq!(
@@ -1357,7 +1371,7 @@ mod tests {
         let json = r#"{"id": 1, "app_id": "firefox", "is_focused": false}"#;
         let w: SavedWindow = serde_json::from_str(json).unwrap();
         assert_eq!(w.app_id, "firefox");
-        assert_eq!(w.workspace_idx, None);
+        assert_eq!(w.workspace.idx, None);
         assert!(w.terminal_state.is_none());
         assert!(w.pid.is_none());
     }
@@ -1371,7 +1385,7 @@ mod tests {
             "is_focused": true
         }"#;
         let w: SavedWindow = serde_json::from_str(json).unwrap();
-        assert_eq!(w.workspace_idx, None);
+        assert_eq!(w.workspace.idx, None);
     }
 
     #[test]
@@ -1418,9 +1432,10 @@ mod tests {
             windows: vec![SavedWindow {
                 id: 42,
                 app_id: "kitty".to_string(),
-                workspace_idx: Some(1),
-                workspace_name: None,
-                workspace_output: None,
+                workspace: WorkspaceInfo {
+                    idx: Some(1),
+                    ..Default::default()
+                },
                 is_focused: false,
                 pid: Some(1234),
                 terminal_state: Some(TerminalState {
