@@ -127,10 +127,10 @@ impl SessionData {
     }
 }
 
-async fn restore_session(file_path: &Path, config: &Config) -> Result<()> {
+async fn restore_session(file_path: &Path, config: &Config, app_config: &AppConfig) -> Result<()> {
     let max_attempts = config.retry_attempts.max(1);
     for attempt in 1..=max_attempts {
-        match restore_session_internal(file_path, config).await {
+        match restore_session_internal(file_path, config, app_config).await {
             Ok(_) => return Ok(()),
             Err(e) if attempt < max_attempts => {
                 eprintln!(
@@ -541,15 +541,18 @@ async fn save_session_with_terminal_state(file_path: &Path, app_config: &AppConf
     Ok(())
 }
 
-async fn restore_session_internal(file_path: &Path, config: &Config) -> Result<()> {
+async fn restore_session_internal(
+    file_path: &Path,
+    config: &Config,
+    app_config: &AppConfig,
+) -> Result<()> {
     if !file_path.exists() {
         log(&format!(
             "No previous session found at {}",
             file_path.display()
         ));
         log("Building new session file");
-        let app_config = load_app_config()?;
-        save_session_with_terminal_state(file_path, &app_config).await?;
+        save_session_with_terminal_state(file_path, app_config).await?;
         return Ok(());
     }
 
@@ -576,8 +579,7 @@ async fn restore_session_internal(file_path: &Path, config: &Config) -> Result<(
                 }
                 None => {
                     log_error("No valid backup found. Starting with empty session.");
-                    let app_config = load_app_config()?;
-                    save_session_with_terminal_state(file_path, &app_config).await?;
+                    save_session_with_terminal_state(file_path, app_config).await?;
                     return Ok(());
                 }
             }
@@ -601,8 +603,6 @@ async fn restore_session_internal(file_path: &Path, config: &Config) -> Result<(
     let claimed_window_ids: Arc<Mutex<HashSet<u64>>> =
         Arc::new(Mutex::new(current_windows.iter().map(|w| w.id).collect()));
     let mut handles = Vec::new();
-
-    let app_config = load_app_config()?;
 
     let mut spawned_apps = HashSet::new();
 
@@ -745,6 +745,7 @@ async fn periodic_save_session(
     file_path: std::path::PathBuf,
     shutdown_signal: Arc<Notify>,
     config: Config,
+    app_config: AppConfig,
 ) {
     let interval_secs = config.save_interval.max(1) * 60;
     let interval = Duration::from_secs(interval_secs);
@@ -757,13 +758,13 @@ async fn periodic_save_session(
     loop {
         select! {
             _ = sleep(interval) => {
-                if let Err(e) = save_session_with_backup(&file_path, &config).await {
+                if let Err(e) = save_session_with_backup(&file_path, &config, &app_config).await {
                     log_error(&format!("Error saving session: {}", e));
                 }
             },
             _ = shutdown_signal.notified() => {
                 log("Shutting down, stopping periodic session saves");
-                if let Err(e) = save_session_with_backup(&file_path, &config).await {
+                if let Err(e) = save_session_with_backup(&file_path, &config, &app_config).await {
                     log_error(&format!("Error saving session: {}", e));
                 } else {
                     log("Final session saved");
@@ -774,15 +775,18 @@ async fn periodic_save_session(
     }
 }
 
-async fn save_session_with_backup(file_path: &Path, config: &Config) -> Result<()> {
+async fn save_session_with_backup(
+    file_path: &Path,
+    config: &Config,
+    app_config: &AppConfig,
+) -> Result<()> {
     create_backup(file_path)?;
 
     if let Some(session_dir) = file_path.parent() {
         cleanup_old_backups(session_dir, config.max_backup_count)?;
     }
 
-    let app_config = load_app_config()?;
-    save_session_with_terminal_state(file_path, &app_config).await
+    save_session_with_terminal_state(file_path, app_config).await
 }
 
 fn create_backup(file_path: &Path) -> Result<()> {
@@ -910,8 +914,16 @@ async fn main() -> Result<()> {
     let session_file_path = get_session_file_path()?;
     let shutdown_signal = Arc::new(Notify::new());
 
+    let app_config = match load_app_config() {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            log_error(&format!("Failed to load app config, using defaults: {e}"));
+            AppConfig::default()
+        }
+    };
+
     log("Restoring previous session");
-    if let Err(e) = restore_session(&session_file_path, &config).await {
+    if let Err(e) = restore_session(&session_file_path, &config, &app_config).await {
         log_error(&format!(
             "Session restore failed (will retry via periodic save): {e}"
         ));
@@ -922,6 +934,7 @@ async fn main() -> Result<()> {
         session_file_path.clone(),
         shutdown_signal_clone,
         config.clone(),
+        app_config,
     ));
 
     let shutdown_signal_clone = Arc::clone(&shutdown_signal);
