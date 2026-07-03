@@ -1,72 +1,74 @@
 # Niri Session Manager
 
-A session manager for the Niri Wayland compositor that automatically saves and restores your window layout.
+A session manager for the Niri Wayland compositor that automatically saves and restores your window layout across compositor restarts.
 
 ## Features
-- Periodic session saving with configurable interval
-- Automatic session restoration on startup
-- Backup management with configurable retention
-- Graceful handling of window spawn failures
-- Configurable retry logic for session restoration
-- Custom app launch command mapping via TOML configuration
-- **Terminal state recovery** — restores running commands inside terminals (e.g. `btop`, `nvim`, `ssh`)
+
+### Core
+- **Periodic session saving** with configurable interval and atomic writes
+- **Automatic session restoration** on startup with retry logic
+- **Backup management** with configurable retention
+- **Corrupted session recovery** — automatically falls back to most recent valid `.bak` if `session.json` is corrupt
+- **Terminal state recovery** — restores running commands inside terminals (e.g. `btop`, `nvim`, `ssh`) via `/proc` PID resolution
+- **Rate-limited window spawning** — max 5 concurrent spawns to avoid overwhelming niri IPC
+- **Dry-run mode** — preview what would be restored without spawning anything
+
+### Reliability
+- **Atomic session writes** (temp + fsync + rename) prevent corruption on crash
+- **Non-fatal restore** — if niri IPC isn't ready yet, logs the error and continues instead of crash-looping
+- **Config validation** at startup with clear error messages
+- **Structured logging** via `tracing` — journald-native output with timestamps and log levels (control verbosity with `RUST_LOG`)
+- **Startup ordering** — restore completes before periodic save starts, preventing partial-state snapshots
 
 ## Usage
-
-The program can be run with various command-line options:
 
 ```bash
 niri-session-manager [OPTIONS]
 ```
 
-### Options
+### CLI Options
 ```
 --save-interval <MINUTES>     How often to save the session (default: 15)
 --max-backup-count <COUNT>    Number of backup files to keep (default: 5)
 --spawn-timeout <SECONDS>     How long to wait for windows to spawn (default: 5)
 --retry-attempts <COUNT>      Number of restore attempts (default: 3)
 --retry-delay <SECONDS>       Delay between retry attempts (default: 2)
+--dry-run                     Preview restore without spawning or saving
+```
+
+### NixOS Module Options
+
+All CLI options are also available as NixOS module options:
+
+```nix
+services.niri-session-manager = {
+  enable = true;
+  saveInterval = 30;       # minutes
+  maxBackupCount = 3;
+  spawnTimeout = 10;       # seconds
+  retryAttempts = 5;
+  retryDelay = 3;          # seconds
+};
 ```
 
 ## Configuration
 
-The program supports mapping app IDs to custom launch commands via a TOML configuration file. This is useful for applications where the app ID doesn't match the executable name, or when special launch arguments are needed.
-
 Configuration file location: `$XDG_CONFIG_HOME/niri-session-manager/config.toml`
 
-Example configuration:
 ```toml
-# Niri Session Manager Configuration
-
 # Apps that should only have one instance
-[single_instance_apps] 
-apps = [
-    "firefox",
-    "zen"
-]
+[single_instance_apps]
+apps = ["firefox", "zen"]
 
-# Applications to skip during startup
+# Applications to skip during restore
 [skip_apps]
-apps = [
-    "discord",
-    "slack"
-]
+apps = ["discord"]
 
-#Application remapping
+# Map niri app IDs to actual launch commands
 [app_mappings]
-
-# flatpak remapping
 "vesktop" = ["flatpak", "run", "dev.vencord.Vesktop"]
-"discord" = ["flatpak", "run", "com.discordapp.Discord"]
-"slack" = ["flatpak", "run", "com.slack.Slack"]
-"obs" = ["flatpak", "run", "com.obsproject.Studio"]
-
-# Simple command remapping
 "com.mitchellh.ghostty" = ["ghostty"]
-"org.wezfurlong.wezterm" = ["wezterm"]
-
-# Commands with arguments
-"firefox-custom" = ["firefox", "--profile", "default-release"]
+"signal" = ["signal-desktop"]
 
 # Terminal state recovery — restore running commands inside terminals
 [terminal_state]
@@ -96,7 +98,7 @@ Terminal-specific flags are handled automatically:
 - **ghostty**: `--working-directory=...`, `-e sh -c ...`
 - **alacritty**: `--working-directory`, `-e sh -c ...`
 
-This feature is Linux-only. On other platforms, `terminal_state` is always `None`.
+This feature is Linux-only.
 
 ## Installation
 
@@ -104,44 +106,46 @@ This feature is Linux-only. On other platforms, `terminal_state` is always `None
 
 ```nix
 {
-  description = "Your NixOS configuration";
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    niri-session-manager.url = "github:MTeaHead/niri-session-manager";
+    niri-session-manager.url = "github:LarsArtmann/niri-session-manager";
   };
   outputs = { self, nixpkgs, niri-session-manager, ... }: {
-    nixosConfigurations = {
-      yourHost = nixpkgs.lib.nixosSystem {
-        system = "x86_64-linux";
-        modules = [
-          # This is not a complete NixOS configuration; reference your normal configuration here.
-          # Import the module
-          niri-session-manager.nixosModules.niri-session-manager
-
-          ({
-            # Enable the service
-            services.niri-session-manager.enable = true;
-            # Optional: Configure the service
-            services.niri-session-manager.settings = {
-              save-interval = 30;  # Save every 30 minutes
-              max-backup-count = 3;  # Keep 3 most recent backups
-            };
-          })
-        ];
-      };
+    nixosConfigurations.yourHost = nixpkgs.lib.nixosSystem {
+      system = "x86_64-linux";
+      modules = [
+        niri-session-manager.nixosModules.niri-session-manager
+        {
+          services.niri-session-manager.enable = true;
+          # Optional overrides:
+          # services.niri-session-manager.saveInterval = 30;
+        }
+      ];
     };
   };
 }
 ```
 
+The systemd user service is automatically configured to:
+- Start after `niri.service` and `graphical-session.target`
+- Restart with 2s delay and rate limiting (5 bursts per 60s)
+- Use OOM score adjustment to avoid being killed first under memory pressure
+
 ## Storage
 
-Session data and backups are stored in:
-- Session file: `$XDG_DATA_HOME/niri-session-manager/session.json`
-- Backups: `$XDG_DATA_HOME/niri-session-manager/session-{timestamp}.bak`
-- Configuration: `$XDG_CONFIG_HOME/niri-session-manager/config.toml`
+- **Session file**: `$XDG_DATA_HOME/niri-session-manager/session.json`
+- **Backups**: `$XDG_DATA_HOME/niri-session-manager/session-{timestamp}.bak`
+- **Configuration**: `$XDG_CONFIG_HOME/niri-session-manager/config.toml`
 
-## Future (when IPC supports it)
-- Grab window size and further details for better placement when restoring windows
-- Configurable per-terminal restore command templates
-- `--dry-run` flag to preview restore without spawning
+Session format is versioned (currently v3). Legacy formats are auto-detected and migrated on next save.
+
+## Development
+
+```bash
+cargo build          # build
+cargo test           # run 57 tests
+cargo clippy         # lint
+cargo fmt            # format
+nix build .#niri-session-manager  # nix build
+nix flake check                  # nix checks
+```
