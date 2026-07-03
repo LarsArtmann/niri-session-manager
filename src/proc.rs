@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::Path;
+use tracing::warn;
 
 #[cfg(target_os = "linux")]
 fn read_cmdline_at(base: &Path, pid: u32) -> Option<Vec<String>> {
@@ -83,7 +84,7 @@ fn resolve_child_process_at(
         let proc_path = base.join(current.to_string());
         if !proc_path.exists() {
             if depth == 0 {
-                eprintln!("Warning: [proc] PID {} no longer exists in {:?}", pid, base);
+                warn!("[proc] PID {} no longer exists in {:?}", pid, base);
             }
             break;
         }
@@ -117,8 +118,8 @@ fn resolve_child_process_at(
         let comm = match read_comm_at(base, next_pid) {
             Some(c) => c,
             None => {
-                eprintln!(
-                    "Warning: [proc] could not read comm for PID {} (child of {})",
+                warn!(
+                    "[proc] could not read comm for PID {} (child of {})",
                     next_pid, current
                 );
                 return None;

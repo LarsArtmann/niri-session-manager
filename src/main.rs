@@ -132,7 +132,7 @@ async fn restore_session(file_path: &Path, config: &Config, app_config: &AppConf
         match restore_session_internal(file_path, config, app_config).await {
             Ok(_) => return Ok(()),
             Err(e) if attempt < max_attempts => {
-                eprintln!(
+                warn!(
                     "Attempt {} failed: {}. Retrying in {} seconds...",
                     attempt, e, config.retry_delay
                 );
