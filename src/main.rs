@@ -73,8 +73,6 @@ struct SavedWindow {
     pid: Option<u32>,
     #[serde(default)]
     terminal_state: Option<TerminalState>,
-    #[serde(default, skip_serializing)]
-    workspace_id: Option<u64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -525,7 +523,6 @@ async fn save_session_with_terminal_state(file_path: &Path, app_config: &AppConf
             is_focused: window.is_focused,
             pid,
             terminal_state,
-            workspace_id: None,
         });
     }
 
@@ -591,12 +588,6 @@ async fn restore_session_internal(
         );
     }
     let mut saved_windows = session.into_windows();
-    let has_legacy_workspace_id = saved_windows.iter().any(|w| w.workspace_id.is_some());
-    if has_legacy_workspace_id {
-        log(
-            "Warning: session file contains deprecated 'workspace_id' field. Workspace info was lost. Re-save to upgrade format.",
-        );
-    }
     saved_windows.sort_by_key(|w| w.workspace_idx.unwrap_or(0));
 
     let current_windows = get_niri_windows().await?;
@@ -810,16 +801,21 @@ fn create_backup(file_path: &Path) -> Result<()> {
 fn find_latest_valid_backup(file_path: &Path) -> Option<(std::path::PathBuf, SessionData)> {
     let dir = file_path.parent()?;
 
-    let mut backups: Vec<_> = fs::read_dir(dir).ok()?
+    let mut backups: Vec<_> = fs::read_dir(dir)
+        .ok()?
         .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.path().extension().is_some_and(|ext| ext == "bak")
-        })
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "bak"))
         .collect();
 
     backups.sort_by(|a, b| {
-        b.metadata().and_then(|m| m.modified()).unwrap_or(UNIX_EPOCH)
-            .cmp(&a.metadata().and_then(|m| m.modified()).unwrap_or(UNIX_EPOCH))
+        b.metadata()
+            .and_then(|m| m.modified())
+            .unwrap_or(UNIX_EPOCH)
+            .cmp(
+                &a.metadata()
+                    .and_then(|m| m.modified())
+                    .unwrap_or(UNIX_EPOCH),
+            )
     });
 
     for backup in backups {
@@ -1264,7 +1260,6 @@ mod tests {
             is_focused: false,
             pid: None,
             terminal_state: None,
-            workspace_id: None,
         };
 
         let cmd = build_spawn_command("com.mitchellh.ghostty", &window, &mappings);
@@ -1286,7 +1281,6 @@ mod tests {
                 child_command: Some(ChildCommand::Args(vec!["btop".to_string()])),
                 child_cwd: Some("/home/user".to_string()),
             }),
-            workspace_id: None,
         };
 
         let cmd = build_spawn_command("kitty", &window, &mappings);
@@ -1296,6 +1290,7 @@ mod tests {
 
     #[test]
     fn saved_window_deserializes_old_format_with_workspace_id() {
+        // workspace_id is silently ignored by serde (no deny_unknown_fields)
         let json = r#"{
             "id": 42,
             "app_id": "kitty",
@@ -1374,7 +1369,7 @@ mod tests {
     }
 
     #[test]
-    fn saved_window_detects_legacy_workspace_id() {
+    fn saved_window_silently_ignores_legacy_workspace_id() {
         let json = r#"{
             "id": 42,
             "app_id": "kitty",
@@ -1382,8 +1377,7 @@ mod tests {
             "is_focused": true
         }"#;
         let w: SavedWindow = serde_json::from_str(json).unwrap();
-        assert!(w.workspace_id.is_some());
-        assert!(w.workspace_idx.is_none());
+        assert_eq!(w.workspace_idx, None);
     }
 
     #[test]
@@ -1439,7 +1433,6 @@ mod tests {
                     child_command: Some(ChildCommand::Args(vec!["btop".to_string()])),
                     child_cwd: Some("/home/user".to_string()),
                 }),
-                workspace_id: None,
             }],
         };
         let json = serde_json::to_string_pretty(&session).unwrap();
@@ -1476,7 +1469,11 @@ mod tests {
         // Write old backup first, then new one later so it has a newer mtime
         fs::write(&old_bak, r#"{"version":3,"windows":[]}"#).unwrap();
         std::thread::sleep(std::time::Duration::from_millis(20));
-        fs::write(&new_bak, r#"{"version":3,"windows":[{"id":1,"app_id":"firefox","is_focused":false}]}"#).unwrap();
+        fs::write(
+            &new_bak,
+            r#"{"version":3,"windows":[{"id":1,"app_id":"firefox","is_focused":false}]}"#,
+        )
+        .unwrap();
 
         let result = find_latest_valid_backup(&session_path);
         assert!(result.is_some());
