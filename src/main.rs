@@ -24,6 +24,7 @@ use tokio::{
     time::sleep,
     time::Duration,
 };
+use tracing::{error, info, warn};
 
 async fn niri_send(request: Request) -> Result<Response> {
     let mut socket = Socket::connect().context("Failed to connect to Niri IPC socket")?;
@@ -534,7 +535,7 @@ async fn save_session_with_terminal_state(file_path: &Path, app_config: &AppConf
         serde_json::to_string_pretty(&session).context("Failed to serialize window data")?;
 
     atomic_write(file_path, &json_data).context("Failed to write session file")?;
-    log(&format!("Session saved to {}", file_path.display()));
+    info!("Session saved to {}", file_path.display());
     Ok(())
 }
 
@@ -544,38 +545,32 @@ async fn restore_session_internal(
     app_config: &AppConfig,
 ) -> Result<()> {
     if !file_path.exists() {
-        log(&format!(
-            "No previous session found at {}",
-            file_path.display()
-        ));
-        log("Building new session file");
+        info!("No previous session found at {}", file_path.display());
+        info!("Building new session file");
         save_session_with_terminal_state(file_path, app_config).await?;
         return Ok(());
     }
 
     let session_data = fs::read_to_string(file_path).context("Failed to read session file")?;
     if session_data.trim().is_empty() {
-        log(&format!("Session file at {} is empty", file_path.display()));
+        info!("Session file at {} is empty", file_path.display());
         return Ok(());
     }
     let session: SessionData = match serde_json::from_str(&session_data) {
         Ok(s) => s,
         Err(e) => {
-            log_error(&format!(
+            warn!(
                 "Session file at {} is corrupt ({}). Attempting backup recovery...",
                 file_path.display(),
                 e
-            ));
+            );
             match find_latest_valid_backup(file_path) {
                 Some((backup_path, backup_data)) => {
-                    log(&format!(
-                        "Recovered session from backup: {}",
-                        backup_path.display()
-                    ));
+                    info!("Recovered session from backup: {}", backup_path.display());
                     backup_data
                 }
                 None => {
-                    log_error("No valid backup found. Starting with empty session.");
+                    warn!("No valid backup found. Starting with empty session.");
                     save_session_with_terminal_state(file_path, app_config).await?;
                     return Ok(());
                 }
@@ -583,9 +578,7 @@ async fn restore_session_internal(
         }
     };
     if session.is_legacy() {
-        log(
-            "Warning: session file uses legacy format (no version field). Consider re-saving to upgrade.",
-        );
+        warn!("Session file uses legacy format (no version field). Consider re-saving to upgrade.");
     }
     let mut saved_windows = session.into_windows();
     saved_windows.sort_by_key(|w| w.workspace_idx.unwrap_or(0));
@@ -601,7 +594,7 @@ async fn restore_session_internal(
         let app_id = saved_window.app_id.clone();
 
         if app_config.skip_apps.apps.contains(&app_id) {
-            log(&format!("Skipping app: {}", app_id));
+            info!("Skipping app: {}", app_id);
             continue;
         }
 
@@ -615,7 +608,7 @@ async fn restore_session_internal(
         let workspace_output = saved_window.workspace_output.clone();
 
         if app_config.single_instance.apps.contains(&app_id) && should_skip {
-            log(&format!("Skipping single-instance app: {}", app_id));
+            info!("Skipping single-instance app: {}", app_id);
             continue;
         }
 
@@ -661,10 +654,10 @@ async fn restore_session_internal(
                                     output: output.clone(),
                                 }));
                             if let Err(e) = &result {
-                                log_error(&format!(
+                                warn!(
                                     "Warning: failed to move window {} to monitor {}: {:?}",
                                     win_id, output, e
-                                ));
+                                );
                             }
                         }
 
@@ -682,19 +675,19 @@ async fn restore_session_internal(
                                 focus: false,
                             }))
                         {
-                            log_error(&format!(
+                            warn!(
                                 "Warning: failed to move window {} to workspace: {:?}",
                                 win_id, e
-                            ));
+                            );
                         }
                         break;
                     }
                 }
             } else {
-                log(&format!(
+                warn!(
                     "Failed to spawn app: {} using command: {:?}",
                     app_id, command
-                ));
+                );
             }
 
             Result::<()>::Ok(())
@@ -707,7 +700,7 @@ async fn restore_session_internal(
         handle.await.context("Task execution failed")??;
     }
 
-    log("Session restored.");
+    info!("Session restored.");
     Ok(())
 }
 
@@ -718,15 +711,15 @@ async fn handle_shutdown_signals(shutdown_signal: Arc<Notify>) {
 
     select! {
         _ = term_signal.recv() => {
-            log("Received SIGTERM signal");
+            info!("Received SIGTERM signal");
             shutdown_signal.notify_waiters();
         },
         _ = int_signal.recv() => {
-            log("Received SIGINT signal");
+            info!("Received SIGINT signal");
             shutdown_signal.notify_waiters();
         },
         _ = quit_signal.recv() => {
-            log("Received SIGQUIT signal");
+            info!("Received SIGQUIT signal");
             shutdown_signal.notify_waiters();
         },
     }
@@ -741,24 +734,24 @@ async fn periodic_save_session(
     let interval_secs = config.save_interval.max(1) * 60;
     let interval = Duration::from_secs(interval_secs);
 
-    log(&format!(
+    info!(
         "Starting periodic save task (interval: {} minutes)",
         config.save_interval.max(1)
-    ));
+    );
 
     loop {
         select! {
             _ = sleep(interval) => {
                 if let Err(e) = save_session_with_backup(&file_path, &config, &app_config).await {
-                    log_error(&format!("Error saving session: {}", e));
+                    error!("Error saving session: {}", e);
                 }
             },
             _ = shutdown_signal.notified() => {
-                log("Shutting down, stopping periodic session saves");
+                info!("Shutting down, stopping periodic session saves");
                 if let Err(e) = save_session_with_backup(&file_path, &config, &app_config).await {
-                    log_error(&format!("Error saving session: {}", e));
+                    error!("Error saving session: {}", e);
                 } else {
-                    log("Final session saved");
+                    info!("Final session saved");
                 }
                 break;
             }
@@ -791,7 +784,7 @@ fn create_backup(file_path: &Path) -> Result<()> {
         let mut backup_path = file_path.to_path_buf();
         backup_path.set_file_name(backup_file_name);
         fs::copy(file_path, &backup_path).context("Failed to create backup file")?;
-        log(&format!("Backup created at {}", backup_path.display()));
+        info!("Backup created at {}", backup_path.display());
     }
     Ok(())
 }
@@ -860,13 +853,13 @@ fn cleanup_old_backups(session_dir: &Path, keep_count: usize) -> Result<()> {
 
     for backup in backups.iter().skip(keep_count) {
         if let Err(e) = fs::remove_file(backup.path()) {
-            log_error(&format!(
+            warn!(
                 "Failed to remove old backup {}: {}",
                 backup.path().display(),
                 e
-            ));
+            );
         } else {
-            log(&format!("Removed old backup: {}", backup.path().display()));
+            info!("Removed old backup: {}", backup.path().display());
         }
     }
 
@@ -892,37 +885,27 @@ struct Config {
     retry_delay: u64,
 }
 
-fn log(message: &str) {
-    println!("{message}");
-    std::io::stdout().flush().unwrap_or_default();
-}
-
-fn log_error(message: &str) {
-    eprintln!("{}", message);
-    std::io::stderr().flush().unwrap_or_default();
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
+    tracing_subscriber::fmt::init();
+
     let config = Config::parse();
 
-    log("Starting niri-session-manager");
+    info!("Starting niri-session-manager");
     let session_file_path = get_session_file_path()?;
     let shutdown_signal = Arc::new(Notify::new());
 
     let app_config = match load_app_config() {
         Ok(cfg) => cfg,
         Err(e) => {
-            log_error(&format!("Failed to load app config, using defaults: {e}"));
+            warn!("Failed to load app config, using defaults: {e}");
             AppConfig::default()
         }
     };
 
-    log("Restoring previous session");
+    info!("Restoring previous session");
     if let Err(e) = restore_session(&session_file_path, &config, &app_config).await {
-        log_error(&format!(
-            "Session restore failed (will retry via periodic save): {e}"
-        ));
+        warn!("Session restore failed (will retry via periodic save): {e}");
     }
 
     let shutdown_signal_clone = Arc::clone(&shutdown_signal);
@@ -940,12 +923,12 @@ async fn main() -> Result<()> {
 
     let timeout = Duration::from_secs(5);
     select! {
-        _ = save_task => log("Save task completed"),
-        _ = signal_task => log("Signal handler completed"),
-        _ = sleep(timeout) => log("Shutdown timed out"),
+        _ = save_task => info!("Save task completed"),
+        _ = signal_task => info!("Signal handler completed"),
+        _ = sleep(timeout) => warn!("Shutdown timed out"),
     }
 
-    log("Shutdown complete");
+    info!("Shutdown complete");
     Ok(())
 }
 
