@@ -891,6 +891,17 @@ async fn main() -> Result<()> {
 
     let config = Config::parse();
 
+    // Validate: reject nonsensical CLI values that would cause silent misbehavior
+    if config.save_interval == 0 {
+        anyhow::bail!("--save-interval must be at least 1 minute");
+    }
+    if config.max_backup_count == 0 {
+        anyhow::bail!("--max-backup-count must be at least 1");
+    }
+    if config.spawn_timeout == 0 {
+        anyhow::bail!("--spawn-timeout must be at least 1 second");
+    }
+
     info!("Starting niri-session-manager");
     let session_file_path = get_session_file_path()?;
     let shutdown_signal = Arc::new(Notify::new());
