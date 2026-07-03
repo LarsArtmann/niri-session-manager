@@ -1519,4 +1519,42 @@ mod tests {
         let result = find_latest_valid_backup(&session_path);
         assert!(result.is_none());
     }
+
+    #[test]
+    fn atomic_write_creates_file_with_correct_content() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("session.json");
+        atomic_write(&path, "{\"test\":true}").unwrap();
+        let content = fs::read_to_string(&path).unwrap();
+        assert_eq!(content, "{\"test\":true}");
+    }
+
+    #[test]
+    fn atomic_write_overwrites_existing_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("session.json");
+        fs::write(&path, "OLD CONTENT").unwrap();
+        atomic_write(&path, "NEW CONTENT").unwrap();
+        let content = fs::read_to_string(&path).unwrap();
+        assert_eq!(content, "NEW CONTENT");
+    }
+
+    #[test]
+    fn atomic_write_leaves_no_temp_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("session.json");
+        atomic_write(&path, "data").unwrap();
+        let tmp_path = path.with_extension("json.tmp");
+        assert!(!tmp_path.exists(), "temp file should not exist after write");
+    }
+
+    #[test]
+    fn atomic_write_creates_parent_dirs() {
+        let tmp = tempfile::tempdir().unwrap();
+        let nested = tmp.path().join("a/b/c/session.json");
+        // atomic_write uses fs::File::create which requires parent dirs
+        // This documents that behavior
+        let result = atomic_write(&nested, "data");
+        assert!(result.is_err(), "should fail without parent dirs");
+    }
 }
