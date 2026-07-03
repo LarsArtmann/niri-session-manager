@@ -141,7 +141,7 @@ async fn restore_session(file_path: &Path, config: &Config, app_config: &AppConf
             Err(e) => return Err(e),
         }
     }
-    Ok(())
+    unreachable!("retry loop exhausts via Err(e) return on final attempt")
 }
 
 fn default_enabled() -> bool {
