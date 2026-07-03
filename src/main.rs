@@ -601,6 +601,24 @@ async fn restore_session_internal(
     let mut saved_windows = session.into_windows();
     saved_windows.sort_by_key(|w| w.workspace.idx.unwrap_or(0));
 
+    if config.dry_run {
+        info!(
+            "DRY RUN: {} windows would be restored:",
+            saved_windows.len()
+        );
+        for w in &saved_windows {
+            let ws_name = w.workspace.name.clone().unwrap_or_else(|| {
+                w.workspace
+                    .idx
+                    .map(|i| i.to_string())
+                    .unwrap_or_else(|| "?".to_string())
+            });
+            let cmd = build_spawn_command(&w.app_id, w, &app_config.app_mappings);
+            info!("  {} -> workspace [{}]: {:?}", w.app_id, ws_name, cmd);
+        }
+        return Ok(());
+    }
+
     let current_windows = get_niri_windows().await?;
     let claimed_window_ids: Arc<Mutex<HashSet<u64>>> =
         Arc::new(Mutex::new(current_windows.iter().map(|w| w.id).collect()));
@@ -903,6 +921,10 @@ struct Config {
 
     #[arg(long, default_value = "2")]
     retry_delay: u64,
+
+    /// Preview what would be restored without actually spawning windows or modifying files
+    #[arg(long, default_value = "false")]
+    dry_run: bool,
 }
 
 #[tokio::main]
@@ -937,6 +959,11 @@ async fn main() -> Result<()> {
     info!("Restoring previous session");
     if let Err(e) = restore_session(&session_file_path, &config, &app_config).await {
         warn!("Session restore failed (will retry via periodic save): {e}");
+    }
+
+    if config.dry_run {
+        info!("Dry run complete — exiting without starting periodic save.");
+        return Ok(());
     }
 
     let shutdown_signal_clone = Arc::clone(&shutdown_signal);
