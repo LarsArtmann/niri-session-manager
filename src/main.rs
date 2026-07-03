@@ -859,7 +859,11 @@ async fn main() -> Result<()> {
     let shutdown_signal = Arc::new(Notify::new());
 
     log("Restoring previous session");
-    restore_session(&session_file_path, &config).await?;
+    if let Err(e) = restore_session(&session_file_path, &config).await {
+        log_error(&format!(
+            "Session restore failed (will retry via periodic save): {e}"
+        ));
+    }
 
     let shutdown_signal_clone = Arc::clone(&shutdown_signal);
     let save_task = spawn(periodic_save_session(
