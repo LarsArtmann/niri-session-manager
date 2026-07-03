@@ -25,15 +25,30 @@ in
     systemd.user.services.niri-session-manager = {
       enable = true;
       description = "Niri Session Manager";
+
       wantedBy = [ "graphical-session.target" ];
-      partOf = [ "graphical-session.target" ];
-      wants = [ "graphical-session.target" ];
-      after = [ "graphical-session.target" ];
+      partOf = [
+        "graphical-session.target"
+        "niri.service"
+      ];
+      after = [
+        "graphical-session.target"
+        "niri.service"
+      ];
+      requires = [ "niri.service" ];
+
+      unitConfig = {
+        StartLimitIntervalSec = 60;
+        StartLimitBurst = 5;
+      };
+
       serviceConfig = {
         Type = "simple";
-        Restart = "always";
         ExecStart = "${getExe cfg.package}";
+        Restart = "always";
+        RestartSec = "2s";
         PrivateTmp = true;
+        OOMScoreAdjust = -500;
       };
     };
   };

@@ -10,7 +10,11 @@ fn read_cmdline_at(base: &Path, pid: u32) -> Option<Vec<String>> {
         .filter(|s| !s.is_empty())
         .map(|s| String::from_utf8_lossy(s).into_owned())
         .collect();
-    if args.is_empty() { None } else { Some(args) }
+    if args.is_empty() {
+        None
+    } else {
+        Some(args)
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -88,15 +92,17 @@ fn resolve_child_process_at(
         let tpgid = read_stat_field_at(base, current, 8).unwrap_or(0) as u32;
 
         if children.is_empty() {
-            if tpgid > 0
-                && let Some(fg_comm) = read_comm_at(base, tpgid)
-                && !is_shell(&fg_comm, shell_names)
-                && fg_comm != "__atexit__"
-                && !is_helper(&fg_comm, helper_names)
-            {
-                let cmd = read_cmdline_at(base, tpgid).unwrap_or_default();
-                let cwd = read_cwd_at(base, tpgid).unwrap_or_default();
-                return Some((cmd, cwd));
+            if tpgid > 0 {
+                if let Some(fg_comm) = read_comm_at(base, tpgid) {
+                    if !is_shell(&fg_comm, shell_names)
+                        && fg_comm != "__atexit__"
+                        && !is_helper(&fg_comm, helper_names)
+                    {
+                        let cmd = read_cmdline_at(base, tpgid).unwrap_or_default();
+                        let cwd = read_cwd_at(base, tpgid).unwrap_or_default();
+                        return Some((cmd, cwd));
+                    }
+                }
             }
             break;
         }

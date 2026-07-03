@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use chrono::{Local, SecondsFormat};
 use clap::Parser;
 use niri_ipc::{
-    Action, Reply, Request, Response, Window, Workspace, WorkspaceReferenceArg, socket::Socket,
+    socket::Socket, Action, Reply, Request, Response, Window, Workspace, WorkspaceReferenceArg,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -17,12 +17,12 @@ use std::{
 };
 use tokio::{
     select,
-    signal::unix::{SignalKind, signal},
+    signal::unix::{signal, SignalKind},
     spawn,
     sync::Notify,
     task::spawn_blocking,
-    time::Duration,
     time::sleep,
+    time::Duration,
 };
 
 async fn niri_send(request: Request) -> Result<Response> {
@@ -128,10 +128,11 @@ impl SessionData {
 }
 
 async fn restore_session(file_path: &Path, config: &Config) -> Result<()> {
-    for attempt in 1..=config.retry_attempts {
+    let max_attempts = config.retry_attempts.max(1);
+    for attempt in 1..=max_attempts {
         match restore_session_internal(file_path, config).await {
             Ok(_) => return Ok(()),
-            Err(e) if attempt < config.retry_attempts => {
+            Err(e) if attempt < max_attempts => {
                 eprintln!(
                     "Attempt {} failed: {}. Retrying in {} seconds...",
                     attempt, e, config.retry_delay
@@ -310,10 +311,10 @@ fn get_shell_from_passwd() -> Option<String> {
 }
 
 fn get_restore_shell() -> String {
-    if let Ok(shell) = std::env::var("SHELL")
-        && !shell.is_empty()
-    {
-        return shell;
+    if let Ok(shell) = std::env::var("SHELL") {
+        if !shell.is_empty() {
+            return shell;
+        }
     }
     #[cfg(target_os = "linux")]
     if let Some(shell) = get_shell_from_passwd() {
@@ -440,14 +441,14 @@ fn build_spawn_command(
         .cloned()
         .unwrap_or_else(|| vec![app_id.to_string()]);
 
-    if let Some(ts) = &saved_window.terminal_state
-        && let Some(child_cmd) = &ts.child_command
-    {
-        let args = child_cmd.to_args();
-        if !args.is_empty() {
-            let exec_name = resolve_executable_name(app_id, app_mappings);
-            let profile = TerminalProfile::from_executable(&exec_name);
-            return build_terminal_restore_command(&mapped, &profile, &args, &ts.child_cwd);
+    if let Some(ts) = &saved_window.terminal_state {
+        if let Some(child_cmd) = &ts.child_command {
+            let args = child_cmd.to_args();
+            if !args.is_empty() {
+                let exec_name = resolve_executable_name(app_id, app_mappings);
+                let profile = TerminalProfile::from_executable(&exec_name);
+                return build_terminal_restore_command(&mapped, &profile, &args, &ts.child_cwd);
+            }
         }
     }
 
@@ -465,6 +466,22 @@ async fn resolve_terminal_state(
         .await
         .ok()
         .flatten()
+}
+
+fn atomic_write(file_path: &Path, data: &str) -> Result<()> {
+    let tmp_path = file_path.with_extension("json.tmp");
+
+    let mut file =
+        fs::File::create(&tmp_path).context("Failed to create temporary session file")?;
+    file.write_all(data.as_bytes())
+        .context("Failed to write session data")?;
+    file.sync_all()
+        .context("Failed to sync session data to disk")?;
+    drop(file);
+
+    fs::rename(&tmp_path, file_path).context("Failed to atomically replace session file")?;
+
+    Ok(())
 }
 
 async fn save_session_with_terminal_state(file_path: &Path, app_config: &AppConfig) -> Result<()> {
@@ -519,7 +536,7 @@ async fn save_session_with_terminal_state(file_path: &Path, app_config: &AppConf
     let json_data =
         serde_json::to_string_pretty(&session).context("Failed to serialize window data")?;
 
-    fs::write(file_path, json_data).context("Failed to write session file")?;
+    atomic_write(file_path, &json_data).context("Failed to write session file")?;
     log(&format!("Session saved to {}", file_path.display()));
     Ok(())
 }
@@ -706,12 +723,12 @@ async fn periodic_save_session(
     shutdown_signal: Arc<Notify>,
     config: Config,
 ) {
-    let interval = Duration::from_secs(config.save_interval * 60);
-    let session_dir = file_path.parent().unwrap_or(&file_path).to_path_buf();
+    let interval_secs = config.save_interval.max(1) * 60;
+    let interval = Duration::from_secs(interval_secs);
 
     log(&format!(
         "Starting periodic save task (interval: {} minutes)",
-        config.save_interval
+        config.save_interval.max(1)
     ));
 
     loop {
@@ -719,9 +736,6 @@ async fn periodic_save_session(
             _ = sleep(interval) => {
                 if let Err(e) = save_session_with_backup(&file_path, &config).await {
                     log_error(&format!("Error saving session: {}", e));
-                }
-                if let Err(e) = cleanup_old_backups(&session_dir, config.max_backup_count) {
-                    log_error(&format!("Error cleaning up old backups: {}", e));
                 }
             },
             _ = shutdown_signal.notified() => {
@@ -844,15 +858,15 @@ async fn main() -> Result<()> {
     let session_file_path = get_session_file_path()?;
     let shutdown_signal = Arc::new(Notify::new());
 
+    log("Restoring previous session");
+    restore_session(&session_file_path, &config).await?;
+
     let shutdown_signal_clone = Arc::clone(&shutdown_signal);
     let save_task = spawn(periodic_save_session(
         session_file_path.clone(),
         shutdown_signal_clone,
         config.clone(),
     ));
-
-    log("Restoring previous session");
-    restore_session(&session_file_path, &config).await?;
 
     let shutdown_signal_clone = Arc::clone(&shutdown_signal);
     let signal_task = spawn(handle_shutdown_signals(shutdown_signal_clone));
@@ -1376,10 +1390,10 @@ mod tests {
     #[test]
     fn get_restore_shell_prefers_env_var() {
         let shell = get_restore_shell();
-        if let Ok(env_shell) = std::env::var("SHELL")
-            && !env_shell.is_empty()
-        {
-            assert_eq!(shell, env_shell);
+        if let Ok(env_shell) = std::env::var("SHELL") {
+            if !env_shell.is_empty() {
+                assert_eq!(shell, env_shell);
+            }
         }
     }
 }
