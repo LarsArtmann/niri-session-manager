@@ -19,7 +19,7 @@ use tokio::{
     select,
     signal::unix::{signal, SignalKind},
     spawn,
-    sync::Notify,
+    sync::{Notify, Semaphore},
     task::spawn_blocking,
     time::sleep,
     time::Duration,
@@ -118,6 +118,7 @@ struct TerminalState {
 }
 
 const SESSION_FORMAT_VERSION: u32 = 3;
+const MAX_SPAWN_CONCURRENCY: usize = 5;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct VersionedSession {
@@ -607,6 +608,8 @@ async fn restore_session_internal(
 
     let mut spawned_apps = HashSet::new();
 
+    let semaphore = Arc::new(Semaphore::new(MAX_SPAWN_CONCURRENCY));
+
     for saved_window in saved_windows {
         let app_id = saved_window.app_id.clone();
 
@@ -635,7 +638,9 @@ async fn restore_session_internal(
 
         let spawn_timeout = config.spawn_timeout;
         let claimed_window_ids = Arc::clone(&claimed_window_ids);
+        let permit = semaphore.clone().acquire_owned().await.unwrap();
         let handle = spawn(async move {
+            let _permit = permit;
             let mut spawn_socket =
                 Socket::connect().context("Failed to connect to Niri IPC socket")?;
             let reply = spawn_socket
