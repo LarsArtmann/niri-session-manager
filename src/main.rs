@@ -558,8 +558,31 @@ async fn restore_session_internal(file_path: &Path, config: &Config) -> Result<(
         log(&format!("Session file at {} is empty", file_path.display()));
         return Ok(());
     }
-    let session: SessionData =
-        serde_json::from_str(&session_data).context("Failed to parse session JSON")?;
+    let session: SessionData = match serde_json::from_str(&session_data) {
+        Ok(s) => s,
+        Err(e) => {
+            log_error(&format!(
+                "Session file at {} is corrupt ({}). Attempting backup recovery...",
+                file_path.display(),
+                e
+            ));
+            match find_latest_valid_backup(file_path) {
+                Some((backup_path, backup_data)) => {
+                    log(&format!(
+                        "Recovered session from backup: {}",
+                        backup_path.display()
+                    ));
+                    backup_data
+                }
+                None => {
+                    log_error("No valid backup found. Starting with empty session.");
+                    let app_config = load_app_config()?;
+                    save_session_with_terminal_state(file_path, &app_config).await?;
+                    return Ok(());
+                }
+            }
+        }
+    };
     if session.is_legacy() {
         log(
             "Warning: session file uses legacy format (no version field). Consider re-saving to upgrade.",
@@ -776,6 +799,35 @@ fn create_backup(file_path: &Path) -> Result<()> {
         log(&format!("Backup created at {}", backup_path.display()));
     }
     Ok(())
+}
+
+/// Attempts to find and parse the most recent valid `.bak` file alongside the session file.
+/// Returns the backup path and parsed session data if a valid backup exists.
+fn find_latest_valid_backup(file_path: &Path) -> Option<(std::path::PathBuf, SessionData)> {
+    let dir = file_path.parent()?;
+
+    let mut backups: Vec<_> = fs::read_dir(dir).ok()?
+        .filter_map(|e| e.ok())
+        .filter(|e| {
+            e.path().extension().is_some_and(|ext| ext == "bak")
+        })
+        .collect();
+
+    backups.sort_by(|a, b| {
+        b.metadata().and_then(|m| m.modified()).unwrap_or(UNIX_EPOCH)
+            .cmp(&a.metadata().and_then(|m| m.modified()).unwrap_or(UNIX_EPOCH))
+    });
+
+    for backup in backups {
+        let path = backup.path();
+        if let Ok(data) = fs::read_to_string(&path) {
+            if let Ok(session) = serde_json::from_str::<SessionData>(&data) {
+                return Some((path, session));
+            }
+        }
+    }
+
+    None
 }
 
 fn cleanup_old_backups(session_dir: &Path, keep_count: usize) -> Result<()> {
@@ -1399,5 +1451,48 @@ mod tests {
                 assert_eq!(shell, env_shell);
             }
         }
+    }
+
+    #[test]
+    fn find_latest_valid_backup_returns_most_recent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let session_path = tmp.path().join("session.json");
+
+        let old_bak = tmp.path().join("session-2024-01-01T00:00:00Z.bak");
+        let new_bak = tmp.path().join("session-2024-06-01T00:00:00Z.bak");
+        // Write old backup first, then new one later so it has a newer mtime
+        fs::write(&old_bak, r#"{"version":3,"windows":[]}"#).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        fs::write(&new_bak, r#"{"version":3,"windows":[{"id":1,"app_id":"firefox","is_focused":false}]}"#).unwrap();
+
+        let result = find_latest_valid_backup(&session_path);
+        assert!(result.is_some());
+        let (path, data) = result.unwrap();
+        assert_eq!(path, new_bak);
+        assert_eq!(data.into_windows().len(), 1);
+    }
+
+    #[test]
+    fn find_latest_valid_backup_skips_corrupt() {
+        let tmp = tempfile::tempdir().unwrap();
+        let session_path = tmp.path().join("session.json");
+
+        let corrupt_bak = tmp.path().join("session-corrupt.bak");
+        let good_bak = tmp.path().join("session-good.bak");
+        fs::write(&corrupt_bak, "{NOT VALID JSON}").unwrap();
+        fs::write(&good_bak, r#"{"version":3,"windows":[]}"#).unwrap();
+
+        let result = find_latest_valid_backup(&session_path);
+        assert!(result.is_some());
+        let (_, data) = result.unwrap();
+        assert_eq!(data.into_windows().len(), 0);
+    }
+
+    #[test]
+    fn find_latest_valid_backup_returns_none_when_empty() {
+        let tmp = tempfile::tempdir().unwrap();
+        let session_path = tmp.path().join("session.json");
+        let result = find_latest_valid_backup(&session_path);
+        assert!(result.is_none());
     }
 }
