@@ -59,6 +59,32 @@ fn get_session_file_path() -> Result<std::path::PathBuf> {
     Ok(session_dir.join("session.json"))
 }
 
+const MAX_RESTORE_WINDOWS_DEFAULT: usize = 100;
+const SAME_APP_RESTORE_WARN_THRESHOLD: usize = 10;
+
+fn get_boot_id() -> Option<String> {
+    fs::read_to_string("/proc/sys/kernel/random/boot_id")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+fn get_restore_marker_path(session_file: &Path) -> std::path::PathBuf {
+    session_file
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("restore-marker")
+}
+
+fn already_restored_this_boot(boot_id: &Option<String>, marker_path: &Path) -> bool {
+    match boot_id {
+        Some(id) => fs::read_to_string(marker_path)
+            .map(|contents| contents.trim() == id.as_str())
+            .unwrap_or(false),
+        None => false,
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 struct WorkspaceInfo {
     #[serde(default, alias = "workspace_idx")]
@@ -503,6 +529,33 @@ fn atomic_write(file_path: &Path, data: &str) -> Result<()> {
     Ok(())
 }
 
+fn dedupe_single_instance_windows(
+    windows: Vec<SavedWindow>,
+    single_instance_apps: &[String],
+) -> Vec<SavedWindow> {
+    let single: std::collections::HashSet<&String> = single_instance_apps.iter().collect();
+    let mut seen_pids: std::collections::HashSet<u32> = std::collections::HashSet::new();
+    windows
+        .into_iter()
+        .filter(|w| {
+            if !single.contains(&w.app_id) {
+                return true;
+            }
+            match w.pid {
+                Some(pid) => seen_pids.insert(pid),
+                None => true,
+            }
+        })
+        .collect()
+}
+
+fn filter_skipped_windows(windows: Vec<SavedWindow>, skip_apps: &[String]) -> Vec<SavedWindow> {
+    windows
+        .into_iter()
+        .filter(|w| !skip_apps.iter().any(|s| s == &w.app_id))
+        .collect()
+}
+
 async fn save_session_with_terminal_state(file_path: &Path, app_config: &AppConfig) -> Result<()> {
     let windows = get_niri_windows().await?;
     let workspaces = get_niri_workspaces().await?;
@@ -543,6 +596,27 @@ async fn save_session_with_terminal_state(file_path: &Path, app_config: &AppConf
             pid,
             terminal_state,
         });
+    }
+
+    let skipped = saved_windows.len();
+    let saved_windows = filter_skipped_windows(saved_windows, &app_config.skip_apps.apps);
+    if saved_windows.len() < skipped {
+        info!(
+            "Not saving {} window(s) of skip-listed apps",
+            skipped - saved_windows.len()
+        );
+    }
+
+    let before_dedupe = saved_windows.len();
+    let saved_windows = dedupe_single_instance_windows(
+        saved_windows,
+        &app_config.single_instance.apps,
+    );
+    if saved_windows.len() < before_dedupe {
+        info!(
+            "Deduped {} extra surface(s) of single-instance apps sharing one process",
+            before_dedupe - saved_windows.len()
+        );
     }
 
     let session = VersionedSession {
@@ -600,6 +674,40 @@ async fn restore_session_internal(
     }
     let mut saved_windows = session.into_windows();
     saved_windows.sort_by_key(|w| w.workspace.idx.unwrap_or(0));
+
+    let terminal_cfg = &app_config.terminal_state;
+    let before_terminal_filter = saved_windows.len();
+    saved_windows.retain(|w| {
+        let is_terminal =
+            terminal_cfg.enabled && terminal_cfg.terminal_app_ids.contains(&w.app_id);
+        !(is_terminal && w.terminal_state.is_none())
+    });
+    if saved_windows.len() < before_terminal_filter {
+        warn!(
+            "Dropped {} terminal window(s) without captured state: restoring them would spawn empty shells",
+            before_terminal_filter - saved_windows.len()
+        );
+    }
+
+    let mut per_app: HashMap<String, usize> = HashMap::new();
+    for w in &saved_windows {
+        *per_app.entry(w.app_id.clone()).or_insert(0) += 1;
+    }
+    for (app, count) in per_app.iter().filter(|(_, c)| **c > SAME_APP_RESTORE_WARN_THRESHOLD) {
+        warn!(
+            "Session file holds {} windows for app '{}' (threshold {}): possible single-instance save leak or poisoned session",
+            count, app, SAME_APP_RESTORE_WARN_THRESHOLD
+        );
+    }
+
+    if saved_windows.len() > config.max_restore_windows {
+        warn!(
+            "Session holds {} windows; capping restore to {} (--max-restore-windows)",
+            saved_windows.len(),
+            config.max_restore_windows
+        );
+        saved_windows.truncate(config.max_restore_windows);
+    }
 
     if config.dry_run {
         info!(
@@ -922,6 +1030,10 @@ struct Config {
     #[arg(long, default_value = "2")]
     retry_delay: u64,
 
+    /// Sanity cap on how many windows a single restore may spawn
+    #[arg(long, default_value_t = MAX_RESTORE_WINDOWS_DEFAULT)]
+    max_restore_windows: usize,
+
     /// Preview what would be restored without actually spawning windows or modifying files
     #[arg(long, default_value = "false")]
     dry_run: bool,
@@ -943,6 +1055,9 @@ async fn main() -> Result<()> {
     if config.spawn_timeout == 0 {
         anyhow::bail!("--spawn-timeout must be at least 1 second");
     }
+    if config.max_restore_windows == 0 {
+        anyhow::bail!("--max-restore-windows must be at least 1");
+    }
 
     info!("Starting niri-session-manager");
     let session_file_path = get_session_file_path()?;
@@ -956,9 +1071,25 @@ async fn main() -> Result<()> {
         }
     };
 
-    info!("Restoring previous session");
-    if let Err(e) = restore_session(&session_file_path, &config, &app_config).await {
-        warn!("Session restore failed (will retry via periodic save): {e}");
+    let boot_id = get_boot_id();
+    let marker_path = get_restore_marker_path(&session_file_path);
+    if already_restored_this_boot(&boot_id, &marker_path) {
+        info!(
+            "Session already restored for this boot; skipping restore (marker: {})",
+            marker_path.display()
+        );
+    } else {
+        info!("Restoring previous session");
+        match restore_session(&session_file_path, &config, &app_config).await {
+            Ok(()) => {
+                if let Some(id) = &boot_id {
+                    if let Err(e) = atomic_write(&marker_path, id) {
+                        warn!("Failed to write restore marker: {e}");
+                    }
+                }
+            }
+            Err(e) => warn!("Session restore failed (will retry via periodic save): {e}"),
+        }
     }
 
     if config.dry_run {
@@ -1000,6 +1131,71 @@ mod tests {
     }
 
     #[test]
+    #[test]
+    fn dedupe_single_instance_keeps_one_window_per_pid() {
+        let win = |id: u64, app: &str, pid: Option<u32>| SavedWindow {
+            id,
+            app_id: app.to_string(),
+            workspace: WorkspaceInfo::default(),
+            is_focused: false,
+            pid,
+            terminal_state: None,
+        };
+        let windows = vec![
+            win(1, "com.mitchellh.ghostty", Some(42)),
+            win(2, "com.mitchellh.ghostty", Some(42)),
+            win(3, "com.mitchellh.ghostty", Some(42)),
+            win(4, "firefox", Some(7)),
+            win(5, "firefox", Some(8)),
+            win(6, "unknown-app", None),
+        ];
+        let out = dedupe_single_instance_windows(windows, &["com.mitchellh.ghostty".to_string()]);
+        assert_eq!(out.len(), 4, "3 same-pid ghostty surfaces collapse to 1; firefox pids differ so both stay; no-pid window stays");
+        assert_eq!(out[0].id, 1);
+        assert_eq!(out[1].id, 4);
+        assert_eq!(out[2].id, 5);
+        assert_eq!(out[3].id, 6);
+    }
+
+    #[test]
+    fn filter_skipped_windows_removes_only_skipped_apps() {
+        let win = |id: u64, app: &str| SavedWindow {
+            id,
+            app_id: app.to_string(),
+            workspace: WorkspaceInfo::default(),
+            is_focused: false,
+            pid: None,
+            terminal_state: None,
+        };
+        let windows = vec![win(1, "xdg-desktop-portal"), win(2, "firefox")];
+        let out = filter_skipped_windows(windows, &["xdg-desktop-portal".to_string()]);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].app_id, "firefox");
+    }
+
+    #[test]
+    fn already_restored_this_boot_matches_trimmed_marker() {
+        let dir = std::env::temp_dir().join(format!(
+            "nsm-marker-test-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let marker = dir.join("restore-marker");
+        let boot_id = Some("boot-abc-123".to_string());
+        assert!(!already_restored_this_boot(&boot_id, &marker), "missing marker = not restored");
+        atomic_write(&marker, "boot-abc-123\n").unwrap();
+        assert!(already_restored_this_boot(&boot_id, &marker), "matching boot id = restored");
+        assert!(
+            !already_restored_this_boot(&Some("other-boot".to_string()), &marker),
+            "different boot id = not restored"
+        );
+        assert!(
+            !already_restored_this_boot(&None, &marker),
+            "unknown boot id (no /proc access) = never skip"
+        );
+        fs::remove_dir_all(&dir).ok();
+    }
+
     fn shell_escape_empty() {
         assert_eq!(shell_escape(""), "''");
     }
