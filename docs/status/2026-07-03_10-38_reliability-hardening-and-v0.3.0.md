@@ -90,7 +90,7 @@
 | 7 | thiserror for structured error types | Low — anyhow is sufficient for this scope |
 | 8 | Cargo-deny for supply chain auditing | Low — nice-to-have |
 | 9 | `CONTRIBUTING.md` | Low |
-| 10 | `CHANGELOG.md` | Low — git log is clean and descriptive |
+| ~~10~~ | ~~`CHANGELOG.md`~~ done — CHANGELOG.md created in docs-health pass 1cc6821 | ~~Low — git log is clean and descriptive~~ |
 | 11 | CI badge in README | Low |
 | 12 | Multi-monitor edge case tests | Medium — output names can change between sessions |
 
@@ -147,7 +147,7 @@
 | 7 | Property-based testing for serialization round-trips | Medium | 1 hr |
 | 8 | Config hot-reload via inotify | Low | 1-2 hr |
 | 9 | `--config-file` CLI override | Low | 15 min |
-| 10 | `CHANGELOG.md` | Low | 20 min |
+| ~~10~~ | ~~`CHANGELOG.md`~~ done — CHANGELOG.md created in docs-health pass 1cc6821 | ~~Low~~ | ~~20 min~~ |
 | 11 | `CONTRIBUTING.md` | Low | 15 min |
 | 12 | Cargo-deny for supply chain | Low | 15 min |
 | 13 | CI badge in README | Low | 5 min |

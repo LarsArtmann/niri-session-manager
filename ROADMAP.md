@@ -18,6 +18,9 @@ Raw ideas:
 - Per-app spawn serialization to eliminate same-app workspace-swap races
 - Output matching by EDID/position instead of name
 - Window size / column-width capture (blocked on niri IPC — evaluate upstream first)
+- Duplicate-window dedup on save (distinct from single-instance dedup)
+- Config hot-reload via file watching (inotify) — restart picks up changes today
+- Per-app restore delay tuning, `--migrate` session-file migration command
 
 ### 2. Reactive session keeping
 
@@ -38,6 +41,9 @@ Raw ideas:
 
 - Health-check surface (`--health-check` subcommand or IPC endpoint)
 - systemd notify readiness signaling (`Type=notify`)
+- Spawn-timeout exponential backoff
+- SSH suspend guard integration
+- journald log-volume review (per-window restore info lines)
 - DMS (DankMaterialShell) integration for session state display
 - Dry-run output designed for humans *and* for snapshot testing
 
@@ -79,6 +85,8 @@ Things we are deliberately NOT pursuing and why:
   upstream exposes layout geometry.
 - **Library-ification with structured error types** (`thiserror` at module
   boundaries): premature while the crate is a binary consumed via flake.
+- **Reactive saves before the event-stream foundation exists**: hot-reload and
+  backoff ideas stay raw until the subscription model lands.
 
 ---
 

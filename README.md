@@ -40,6 +40,7 @@ niri-session-manager [OPTIONS]
 --spawn-timeout <SECONDS>     How long to wait for windows to spawn (default: 5)
 --retry-attempts <COUNT>      Number of restore attempts (default: 3)
 --retry-delay <SECONDS>       Delay between retry attempts (default: 2)
+--max-restore-windows <N>     Sanity cap on windows a single restore may spawn (default: 100)
 --dry-run                     Preview restore without spawning or saving
 ```
 

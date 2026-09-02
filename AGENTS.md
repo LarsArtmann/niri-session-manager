@@ -26,7 +26,7 @@ nix fmt                          # fix Nix formatting
 
 Deliberately two files — do not split further without strong reason:
 
-- `src/main.rs` (~1850 lines): everything else — niri IPC, session model, save/restore, config, backups, CLI, tests.
+- `src/main.rs` (~1900 lines): everything else — niri IPC, session model, save/restore, config, backups, CLI, tests.
 - `src/proc.rs` (~440 lines): `/proc` process-tree walking for terminal state recovery. Linux-only code is gated with `#[cfg(target_os = "linux")]` with a portable no-op fallback for `resolve_child_process`. Everything in this file takes an injectable `base: &Path` so tests can mount fake proc trees.
 
 ### Runtime flow
@@ -57,7 +57,7 @@ Deliberately two files — do not split further without strong reason:
 
 - CLI: defined in `Config` (clap derive) in `src/main.rs`; validated manually in `main` (clap can't express "must be ≥ 1" per-arg with defaults).
 - TOML: `AppConfig` at `$XDG_CONFIG_HOME/niri-session-manager/config.toml` (app_mappings, single_instance_apps, skip_apps, terminal_state). Invalid TOML logs a warning and falls back to defaults — it does not fail startup.
-- NixOS module (`module.nix`): mirrors CLI flags as camelCase options, wired into a systemd user service ordered after `niri.service` + `graphical-session.target`. When adding a CLI flag, update `module.nix` and the README option tables together.
+- NixOS module (`module.nix`): mirrors 5 of the 7 CLI flags as camelCase options (`maxRestoreWindows` is missing — see TODO_LIST; `dryRun` is CLI-only by design), wired into a systemd user service ordered after `niri.service` + `graphical-session.target`. When adding a CLI flag, update `module.nix` and the README option tables together.
 
 ## Testing
 
@@ -66,9 +66,14 @@ Deliberately two files — do not split further without strong reason:
 - Everything touching live niri IPC (`restore_session_internal` spawning, semaphore rate limiting, retry loop) is untested — don't assume IPC paths have coverage.
 - Serialization round-trip tests exist for the session format; extend them when touching `SavedWindow`/`SessionData`.
 
+## Docs map
+
+- `README.md` (user-facing), `FEATURES.md` (honest feature status), `TODO_LIST.md` (open bounded work), `ROADMAP.md` (vision + pending maintainer questions), `CHANGELOG.md` (per-version changes). Keep all five in sync with code; done TODO items move to CHANGELOG.
+- `docs/status/*.md` are annotated point-in-time reports, archived under `docs/status/archived/` once every item is resolved inline — historical evidence, not current truth.
+
 ## Known Issues (pre-existing, not yours to fix unprompted)
 
-- `docs/status/*.md` are point-in-time reports — re-verify claims against code before acting on them.
+- `docs/status/archived/*.md` are point-in-time reports — re-verify claims against code before acting on them.
 - Everything touching live niri IPC is untested (see Testing); don't assume IPC paths have coverage.
 - `SavedWindow.is_focused` is saved but never used during restore (focus restoration not implemented).
 - Restore is not idempotent across failed restores: if a restore partially spawns windows and then fails, the retry (or next service start without a marker) re-spawns windows for non-single-instance apps. Boot marker is only written on full success.

@@ -56,6 +56,7 @@
 | Workspace `idx = Some(0)` from legacy files: decide clamp vs skip (niri is 1-based) | 🔴 `TODO` | Low | Low | restore workspace-move guard in `src/main.rs`                   |
 | Sanity-check `max_walk_depth` upper bound in config validation        | 🔴 `TODO` | Low    | Low    | `terminal_state` config validation                              |
 | Example `session.json` in `docs/`                                     | 🔴 `TODO` | Low    | Low    | format documented only in code                                  |
+| Handle `SHELL` unset + passwd-lookup failure explicitly in tests      | 🔴 `TODO` | Low    | Low    | shell-detection path in `src/main.rs` tests                     |
 | `--restore` / `--save-only` explicit run modes (currently implicit)   | 🔴 `TODO` | Low    | Low    | `Config` struct `src/main.rs:1032`                              |
 
 ---

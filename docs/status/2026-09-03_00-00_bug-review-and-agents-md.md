@@ -104,10 +104,10 @@ Self-critique (what I forgot / could have done better):
 
 ### Release / docs
 11. Bump version (0.4.0 → 0.4.1) — these are behavior fixes consumers should be able to pin.
-12. CHANGELOG.md — session fixes are currently only in unlabeled auto-commits.
-13. README: add missing `--max-restore-windows` CLI option (exists since v0.3.x, never documented).
-14. README: document the restore-marker/boot-gate behavior and dry-run semantics.
-15. Commit messages: auto-commits are "heuristic" noise — the 7 bug fixes deserve one descriptive commit each or one squash with a real message.
+12. ~~CHANGELOG.md — session fixes are currently only in unlabeled auto-commits.~~ done (CHANGELOG.md created in docs-health pass 1cc6821)
+13. ~~README: add missing `--max-restore-windows` CLI option (exists since v0.3.x, never documented).~~ done (--max-restore-windows documented in README (docs-health pass 2026-09-03))
+14. ~~README: document the restore-marker/boot-gate behavior and dry-run semantics.~~ done (boot-gate + dry-run semantics documented in README Behavior Notes (docs-health pass 2026-09-03))
+15. ~~Commit messages: auto-commits are "heuristic" noise — the 7 bug fixes deserve one descriptive commit each or one squash with a real message.~~ **Won't implement — rewriting published history breaks SystemNix flake pins (ROADMAP non-goal).**
 
 ---
 
@@ -118,11 +118,11 @@ Self-critique (what I forgot / could have done better):
 | 1 | Count-based idempotent restore | High | Medium |
 | 2 | Serialize same-app spawns (fix workspace swap) | High | Medium |
 | 3 | Refactor main() shutdown + boot gate into testable units + regression tests | High | Medium |
-| 4 | Version bump 0.4.1 + CHANGELOG for this session's fixes | High | Low |
+| ~~4~~ | ~~Version bump 0.4.1 + CHANGELOG for this session's fixes~~ done — CHANGELOG created 1cc6821; version bump → TODO_LIST T5 | ~~High~~ | ~~Low~~ |
 | 5 | Fake-socket IPC integration test harness | High | High |
 | 6 | fsync parent dir in atomic_write | Medium | Low |
 | 7 | Verify terminal flags against real wezterm/ghostty/foot/kitty/alacritty | Medium | Low |
-| 8 | Document `--max-restore-windows` in README | Medium | Low |
+| ~~8~~ | ~~Document `--max-restore-windows` in README~~ done — documented in README (docs-health pass 2026-09-03) | ~~Medium~~ | ~~Low~~ |
 | 9 | niri event-stream subscription (reactive saves, already planned pre-session) | High | High |
 | 10 | Focus restoration (`is_focused` unused) | Medium | Medium |
 | 11 | Multi-monitor output-name robustness (match by EDID/position) | Medium | High |
@@ -135,7 +135,7 @@ Self-critique (what I forgot / could have done better):
 | 18 | thiserror error types at module boundary | Low | Medium |
 | 19 | cargo-deny supply chain check in CI | Low | Low |
 | 20 | CI badge in README | Low | Low |
-| 21 | Squash this session's auto-commits into descriptive messages (if history rewrite acceptable) | Medium | Low |
+| ~~21~~ | ~~Squash this session's auto-commits into descriptive messages (if history rewrite acceptable)~~ **Won't implement — rewriting published history breaks SystemNix pins.** | ~~Medium~~ | ~~Low~~ |
 | 22 | dry-run output snapshot test | Low | Low |
 | 23 | Property tests for SessionData/SavedWindow round-trip | Medium | Medium |
 | 24 | Test restore retry loop with injectable failure injection | Medium | Medium |
@@ -147,13 +147,13 @@ Self-critique (what I forgot / could have done better):
 | 30 | CONTRIBUTING.md | Low | Low |
 | 31 | Cross-platform CI job (macOS build only, proc module is linux-gated) | Low | Medium |
 | 32 | `--restore` / `--save-only` run modes (currently implicit) | Medium | Low |
-| 33 | Confirm RUST_LOG docs in README (tracing env filter syntax) | Low | Low |
+| ~~33~~ | ~~Confirm RUST_LOG docs in README (tracing env filter syntax)~~ done — README documents RUST_LOG (verified 2026-09-03) | ~~Low~~ | ~~Low~~ |
 | 34 | Example session.json in docs/ | Low | Low |
 | 35 | Bench/limit log volume of per-window restore info lines | Low | Low |
 | 36 | Cap `max_walk_depth` sanity check in config validation | Low | Low |
 | 37 | Warn when `terminal_state.enabled` but zero terminals matched during save | Low | Low |
 | 38 | Add `--version` smoke test in CI | Low | Low |
-| 39 |(dead) `select!` import check — unused imports after F4 (verify none remain) | Low | Low |
+| ~~39~~ | ~~(dead) `select!` import check — unused imports after F4 (verify none remain)~~ done — cargo build emits zero warnings at 915216c | ~~Low~~ | ~~Low~~ |
 | 40 | Evaluate niri's native session/restore features for overlap (avoid building upstream features) | Medium | Low |
 
 (Items 41–50 intentionally left unstated rather than padded — the list above is what this session actually surfaced.)
