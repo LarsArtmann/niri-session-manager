@@ -68,12 +68,12 @@
 - `WorkspaceInfo` extracted with serde flatten + alias — **but the serialized JSON keys changed** from `workspace_idx`/`workspace_name`/`workspace_output` to shorter `idx`/`name`/`output`
 - Deserialization handles both old and new keys via `#[serde(alias = "...")]`
 - No migration step needed — old files auto-migrate on next save
-- **Gap:** `SESSION_FORMAT_VERSION` is still 3, should bump to 4 to reflect the new key names in serialized output
+- **Gap:** `SESSION_FORMAT_VERSION` is still 3, should bump to 4 to reflect the new key names in serialized output → ROADMAP Open Question 4
 
 ### Test Coverage
 - 57 tests total (up from baseline 46)
 - **Well covered:** atomic_write, config parsing, serialization round-trips, proc PID resolution, terminal profiles, shell escaping, backup recovery
-- **Not covered:** IPC integration (requires live niri), rate limiting semaphore, dry-run output, restore_session retry loop
+- **Not covered:** IPC integration (requires live niri), rate limiting semaphore, dry-run output, restore_session retry loop → TODO_LIST (fake-socket harness, retry-loop test, dry-run snapshot test)
 
 ---
 
@@ -81,18 +81,18 @@
 
 | # | Item | Impact |
 |---|------|--------|
-| 1 | niri event stream subscription (reactive saves instead of polling) | High — would enable instant saves on layout changes |
-| 2 | Focus restoration after workspace placement | Medium — focused window not restored |
-| 3 | Window size/column-width capture and restoration | Medium — blocked by niri IPC limitations |
-| 4 | Config hot-reload via file watching (inotify) | Low — restart picks up config changes |
-| 5 | `--config-file` CLI override for config path | Low — XDG is sufficient |
-| 6 | Integration test with mock IPC socket | Medium — would catch IPC protocol regressions |
-| 7 | thiserror for structured error types | Low — anyhow is sufficient for this scope |
-| 8 | Cargo-deny for supply chain auditing | Low — nice-to-have |
-| 9 | `CONTRIBUTING.md` | Low |
+| 1 | niri event stream subscription (reactive saves instead of polling) → TODO_LIST T6 | High — would enable instant saves on layout changes |
+| 2 | Focus restoration after workspace placement → TODO_LIST T10 | Medium — focused window not restored |
+| 3 | Window size/column-width capture and restoration → ROADMAP (blocked upstream) | Medium — blocked by niri IPC limitations |
+| 4 | Config hot-reload via file watching (inotify) → ROADMAP (raw idea) | Low — restart picks up config changes |
+| 5 | `--config-file` CLI override for config path → TODO_LIST T19 | Low — XDG is sufficient |
+| 6 | Integration test with mock IPC socket → TODO_LIST T4 | Medium — would catch IPC protocol regressions |
+| 7 | thiserror for structured error types → ROADMAP non-goal | Low — anyhow is sufficient for this scope |
+| 8 | Cargo-deny for supply chain auditing → TODO_LIST T26 | Low — nice-to-have |
+| 9 | `CONTRIBUTING.md` → TODO_LIST T25 | Low |
 | ~~10~~ | ~~`CHANGELOG.md`~~ done — CHANGELOG.md created in docs-health pass 1cc6821 | ~~Low — git log is clean and descriptive~~ |
-| 11 | CI badge in README | Low |
-| 12 | Multi-monitor edge case tests | Medium — output names can change between sessions |
+| 11 | CI badge in README → TODO_LIST T24 | Low |
+| 12 | Multi-monitor edge case tests → TODO_LIST T13 | Medium — output names can change between sessions |
 
 ---
 
@@ -118,19 +118,19 @@
 ## E) WHAT WE SHOULD IMPROVE
 
 ### Architecture
-1. **Session format version bump to 4** — serialized JSON now uses `idx`/`name`/`output` instead of `workspace_idx`/`workspace_name`/`workspace_output`. The version should reflect this.
-2. **Reactive saves via niri event stream** — instead of polling every 15 minutes, subscribe to niri's IPC event stream and save on layout changes. Would make session saves near-instant.
-3. **Error type strategy** — currently using `anyhow` everywhere. For a library boundary (if this ever becomes one), structured errors via `thiserror` would be better. For now anyhow is fine.
+1. **Session format version bump to 4** — serialized JSON now uses `idx`/`name`/`output` instead of `workspace_idx`/`workspace_name`/`workspace_output`. The version should reflect this. → ROADMAP Open Question 4
+2. **Reactive saves via niri event stream** — instead of polling every 15 minutes, subscribe to niri's IPC event stream and save on layout changes. Would make session saves near-instant. → TODO_LIST T6
+3. **Error type strategy** — currently using `anyhow` everywhere. For a library boundary (if this ever becomes one), structured errors via `thiserror` would be better. For now anyhow is fine. → ROADMAP non-goal
 
 ### Operational
-4. **Focus restoration** — `SavedWindow` has `is_focused` but it's never used during restore. After all windows are placed, the focused window should be brought to front.
-5. **Multi-monitor robustness** — workspace output names can change between sessions (e.g., monitor plugged into different port). Should match outputs by EDID or position, not name.
-6. **Health check** — no way to verify the service is healthy beyond "process is running". A `/health` IPC endpoint or `--health-check` CLI subcommand would help.
+4. **Focus restoration** — `SavedWindow` has `is_focused` but it's never used during restore. After all windows are placed, the focused window should be brought to front. → TODO_LIST T10
+5. **Multi-monitor robustness** — workspace output names can change between sessions (e.g., monitor plugged into different port). Should match outputs by EDID or position, not name. → TODO_LIST T13
+6. **Health check** — no way to verify the service is healthy beyond "process is running". A `/health` IPC endpoint or `--health-check` CLI subcommand would help. → TODO_LIST T23
 
 ### Testing
-7. **Integration tests with mock IPC** — all IPC code paths are untested. A test harness with a fake niri socket would catch protocol regressions.
-8. **Property-based testing** for serialization — quickcheck or proptest would catch edge cases in the SessionData/SavedWindow round-trip.
-9. **Snapshot tests** for dry-run output — ensure the preview format doesn't accidentally change.
+7. **Integration tests with mock IPC** — all IPC code paths are untested. A test harness with a fake niri socket would catch protocol regressions. → TODO_LIST T4
+8. **Property-based testing** for serialization — quickcheck or proptest would catch edge cases in the SessionData/SavedWindow round-trip. → TODO_LIST T17
+9. **Snapshot tests** for dry-run output — ensure the preview format doesn't accidentally change. → TODO_LIST T18
 
 ---
 
@@ -138,31 +138,31 @@
 
 | # | Task | Impact | Effort |
 |---|------|--------|--------|
-| 1 | Bump `SESSION_FORMAT_VERSION` to 4 | Medium | 5 min |
-| 2 | Focus restoration after workspace placement | High | 30 min |
-| 3 | niri event stream subscription for reactive saves | High | 2-4 hr |
-| 4 | Integration test harness with mock niri IPC socket | High | 3-5 hr |
-| 5 | Multi-monitor output matching (by position, not name) | Medium | 1-2 hr |
-| 6 | Snapshot test for dry-run output | Low | 20 min |
-| 7 | Property-based testing for serialization round-trips | Medium | 1 hr |
-| 8 | Config hot-reload via inotify | Low | 1-2 hr |
-| 9 | `--config-file` CLI override | Low | 15 min |
+| 1 | Bump `SESSION_FORMAT_VERSION` to 4 → ROADMAP Open Question 4 | Medium | 5 min |
+| 2 | Focus restoration after workspace placement → TODO_LIST T10 | High | 30 min |
+| 3 | niri event stream subscription for reactive saves → TODO_LIST T6 | High | 2-4 hr |
+| 4 | Integration test harness with mock niri IPC socket → TODO_LIST T4 | High | 3-5 hr |
+| 5 | Multi-monitor output matching (by position, not name) → TODO_LIST T13 | Medium | 1-2 hr |
+| 6 | Snapshot test for dry-run output → TODO_LIST T18 | Low | 20 min |
+| 7 | Property-based testing for serialization round-trips → TODO_LIST T17 | Medium | 1 hr |
+| 8 | Config hot-reload via inotify → ROADMAP (raw idea) | Low | 1-2 hr |
+| 9 | `--config-file` CLI override → TODO_LIST T19 | Low | 15 min |
 | ~~10~~ | ~~`CHANGELOG.md`~~ done — CHANGELOG.md created in docs-health pass 1cc6821 | ~~Low~~ | ~~20 min~~ |
-| 11 | `CONTRIBUTING.md` | Low | 15 min |
-| 12 | Cargo-deny for supply chain | Low | 15 min |
-| 13 | CI badge in README | Low | 5 min |
-| 14 | `--health-check` subcommand | Medium | 30 min |
-| 15 | Window size/column-width capture (when niri IPC supports it) | High | Blocked upstream |
-| 16 | Spawn timeout exponential backoff | Low | 20 min |
-| 17 | Deduplication of identical windows in session file | Low | 30 min |
-| 18 | thiserror for public error types | Low | 1 hr |
-| 19 | SSH suspend guard integration | Low | 30 min |
-| 20 | DMS (DankMaterialShell) integration for session state display | Low | 1 hr |
-| 21 | Per-app restore delay config | Low | 20 min |
-| 22 | Session file migration command (`--migrate`) | Low | 30 min |
-| 23 | systemd notify readiness signaling | Low | 15 min |
-| 24 | Coverage reporting in CI (`tarpaulin`) | Low | 30 min |
-| 25 | Crate publication to crates.io | Low | 15 min |
+| 11 | `CONTRIBUTING.md` → TODO_LIST T25 | Low | 15 min |
+| 12 | Cargo-deny for supply chain → TODO_LIST T26 | Low | 15 min |
+| 13 | CI badge in README → TODO_LIST T24 | Low | 5 min |
+| 14 | `--health-check` subcommand → TODO_LIST T23 | Medium | 30 min |
+| 15 | Window size/column-width capture (when niri IPC supports it) → ROADMAP (blocked upstream) | High | Blocked upstream |
+| 16 | Spawn timeout exponential backoff → ROADMAP (raw idea) | Low | 20 min |
+| 17 | Deduplication of identical windows in session file → ROADMAP (raw idea) | Low | 30 min |
+| 18 | thiserror for public error types → ROADMAP non-goal | Low | 1 hr |
+| 19 | SSH suspend guard integration → ROADMAP (raw idea) | Low | 30 min |
+| 20 | DMS (DankMaterialShell) integration for session state display → ROADMAP operability | Low | 1 hr |
+| 21 | Per-app restore delay config → ROADMAP (raw idea) | Low | 20 min |
+| 22 | Session file migration command (`--migrate`) → ROADMAP (raw idea) | Low | 30 min |
+| 23 | systemd notify readiness signaling → ROADMAP operability | Low | 15 min |
+| 24 | Coverage reporting in CI (`tarpaulin`) → ROADMAP supply chain | Low | 30 min |
+| 25 | Crate publication to crates.io → ROADMAP supply chain | Low | 15 min |
 
 ---
 
@@ -176,4 +176,4 @@ Options:
 - **A) Bump to 4** — accurate, signals the format change, but technically no migration is needed since aliases handle backward compat
 - **B) Keep at 3** — safe, but misleading since the serialized representation changed
 
-I lean towards **A (bump to 4)** for honesty about the format change, but would defer to the user's preference.
+I lean towards **A (bump to 4)** for honesty about the format change, but would defer to the user's preference. → ROADMAP Open Question 4
