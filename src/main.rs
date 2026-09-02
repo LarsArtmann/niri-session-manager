@@ -19,7 +19,7 @@ use tokio::{
     select,
     signal::unix::{signal, SignalKind},
     spawn,
-    sync::{Notify, Semaphore},
+    sync::Semaphore,
     task::spawn_blocking,
     time::sleep,
     time::Duration,
@@ -876,7 +876,7 @@ async fn restore_session_internal(
     Ok(())
 }
 
-async fn handle_shutdown_signals(shutdown_signal: Arc<Notify>) {
+async fn handle_shutdown_signals() {
     let mut term_signal = signal(SignalKind::terminate()).expect("Failed to listen for SIGTERM");
     let mut int_signal = signal(SignalKind::interrupt()).expect("Failed to listen for SIGINT");
     let mut quit_signal = signal(SignalKind::quit()).expect("Failed to listen for SIGQUIT");
@@ -884,22 +884,18 @@ async fn handle_shutdown_signals(shutdown_signal: Arc<Notify>) {
     select! {
         _ = term_signal.recv() => {
             info!("Received SIGTERM signal");
-            shutdown_signal.notify_waiters();
         },
         _ = int_signal.recv() => {
             info!("Received SIGINT signal");
-            shutdown_signal.notify_waiters();
         },
         _ = quit_signal.recv() => {
             info!("Received SIGQUIT signal");
-            shutdown_signal.notify_waiters();
         },
     }
 }
 
 async fn periodic_save_session(
     file_path: std::path::PathBuf,
-    shutdown_signal: Arc<Notify>,
     config: Config,
     app_config: AppConfig,
 ) {
@@ -912,21 +908,9 @@ async fn periodic_save_session(
     );
 
     loop {
-        select! {
-            _ = sleep(interval) => {
-                if let Err(e) = save_session_with_backup(&file_path, &config, &app_config).await {
-                    error!("Error saving session: {}", e);
-                }
-            },
-            _ = shutdown_signal.notified() => {
-                info!("Shutting down, stopping periodic session saves");
-                if let Err(e) = save_session_with_backup(&file_path, &config, &app_config).await {
-                    error!("Error saving session: {}", e);
-                } else {
-                    info!("Final session saved");
-                }
-                break;
-            }
+        sleep(interval).await;
+        if let Err(e) = save_session_with_backup(&file_path, &config, &app_config).await {
+            error!("Error saving session: {}", e);
         }
     }
 }
@@ -1095,7 +1079,6 @@ async fn main() -> Result<()> {
 
     info!("Starting niri-session-manager");
     let session_file_path = get_session_file_path()?;
-    let shutdown_signal = Arc::new(Notify::new());
 
     let app_config = match load_app_config() {
         Ok(cfg) => cfg,
@@ -1135,24 +1118,24 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    let shutdown_signal_clone = Arc::clone(&shutdown_signal);
     let save_task = spawn(periodic_save_session(
         session_file_path.clone(),
-        shutdown_signal_clone,
         config.clone(),
         app_config,
     ));
 
-    let shutdown_signal_clone = Arc::clone(&shutdown_signal);
-    let signal_task = spawn(handle_shutdown_signals(shutdown_signal_clone));
+    let signal_task = spawn(handle_shutdown_signals());
 
-    shutdown_signal.notified().await;
+    let _ = signal_task.await;
+    save_task.abort();
+    let _ = save_task.await;
 
-    let timeout = Duration::from_secs(5);
-    select! {
-        _ = save_task => info!("Save task completed"),
-        _ = signal_task => info!("Signal handler completed"),
-        _ = sleep(timeout) => warn!("Shutdown timed out"),
+    info!("Saving final session before shutdown");
+    let final_save = save_session_with_backup(&session_file_path, &config, &app_config);
+    match tokio::time::timeout(Duration::from_secs(5), final_save).await {
+        Ok(Ok(())) => info!("Final session saved"),
+        Ok(Err(e)) => error!("Error saving final session: {}", e),
+        Err(_) => warn!("Final save timed out"),
     }
 
     info!("Shutdown complete");
