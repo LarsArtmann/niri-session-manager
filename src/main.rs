@@ -396,6 +396,14 @@ impl TerminalProfile {
         }
     }
 
+    fn from_args(args: &[String]) -> Self {
+        args.iter()
+            .rev()
+            .map(|arg| Self::from_executable(arg))
+            .find(|profile| *profile != Self::Generic)
+            .unwrap_or(Self::Generic)
+    }
+
     fn needs_start_subcommand(&self) -> bool {
         matches!(self, Self::Wezterm)
     }
@@ -417,14 +425,6 @@ impl TerminalProfile {
             Self::Ghostty | Self::Alacritty | Self::Generic => Some("-e"),
         }
     }
-}
-
-fn resolve_executable_name(app_id: &str, app_mappings: &HashMap<String, Vec<String>>) -> String {
-    app_mappings
-        .get(app_id)
-        .and_then(|args| args.first())
-        .cloned()
-        .unwrap_or_else(|| app_id.to_string())
 }
 
 fn build_terminal_restore_command(
@@ -490,8 +490,7 @@ fn build_spawn_command(
         if let Some(child_cmd) = &ts.child_command {
             let args = child_cmd.to_args();
             if !args.is_empty() {
-                let exec_name = resolve_executable_name(app_id, app_mappings);
-                let profile = TerminalProfile::from_executable(&exec_name);
+                let profile = TerminalProfile::from_args(&mapped);
                 return build_terminal_restore_command(&mapped, &profile, &args, &ts.child_cwd);
             }
         }
@@ -808,23 +807,41 @@ async fn restore_session_internal(
                         }
 
                         let workspace_reference =
-                            if let Some(name) = workspace.name.as_ref().filter(|n| !n.is_empty()) {
-                                WorkspaceReferenceArg::Name(name.clone())
-                            } else {
-                                WorkspaceReferenceArg::Index(workspace.idx.unwrap_or(0))
+                            match workspace
+                                .name
+                                .as_ref()
+                                .filter(|n| !n.is_empty())
+                                .cloned()
+                                .map(WorkspaceReferenceArg::Name)
+                                .or_else(|| {
+                                    workspace
+                                        .idx
+                                        .filter(|i| *i > 0)
+                                        .map(WorkspaceReferenceArg::Index)
+                                }) {
+                                Some(reference) => Some(reference),
+                                None => {
+                                    info!(
+                                        "Window {} has no saved workspace; leaving it on the active workspace",
+                                        win_id
+                                    );
+                                    None
+                                }
                             };
 
-                        if let Err(e) =
-                            move_socket.send(Request::Action(Action::MoveWindowToWorkspace {
-                                window_id: Some(win_id),
-                                reference: workspace_reference,
-                                focus: false,
-                            }))
-                        {
-                            warn!(
-                                "Warning: failed to move window {} to workspace: {:?}",
-                                win_id, e
-                            );
+                        if let Some(reference) = workspace_reference {
+                            if let Err(e) = move_socket
+                                .send(Request::Action(Action::MoveWindowToWorkspace {
+                                    window_id: Some(win_id),
+                                    reference,
+                                    focus: false,
+                                }))
+                            {
+                                warn!(
+                                    "Warning: failed to move window {} to workspace: {:?}",
+                                    win_id, e
+                                );
+                            }
                         }
                         break;
                     }
@@ -1231,27 +1248,28 @@ mod tests {
     }
 
     #[test]
-    fn resolve_executable_from_mappings() {
-        let mut mappings = HashMap::new();
-        mappings.insert(
-            "com.mitchellh.ghostty".to_string(),
-            vec!["ghostty".to_string()],
-        );
-        mappings.insert(
+    fn terminal_profile_from_args_finds_flatpak_wrapped_terminal() {
+        let mapped = vec![
+            "flatpak".to_string(),
+            "run".to_string(),
             "org.wezfurlong.wezterm".to_string(),
-            vec!["wezterm".to_string()],
-        );
+        ];
+        let profile = TerminalProfile::from_args(&mapped);
+        assert_eq!(profile, TerminalProfile::Wezterm);
+    }
 
+    #[test]
+    fn terminal_profile_from_args_plain_app_id() {
+        let mapped = vec!["kitty".to_string()];
         assert_eq!(
-            resolve_executable_name("com.mitchellh.ghostty", &mappings),
-            "ghostty"
+            TerminalProfile::from_args(&mapped),
+            TerminalProfile::Kitty
         );
+        let unknown = vec!["my-terminal-wrapper".to_string()];
         assert_eq!(
-            resolve_executable_name("org.wezfurlong.wezterm", &mappings),
-            "wezterm"
+            TerminalProfile::from_args(&unknown),
+            TerminalProfile::Generic
         );
-        assert_eq!(resolve_executable_name("kitty", &mappings), "kitty");
-        assert_eq!(resolve_executable_name("unknown", &mappings), "unknown");
     }
 
     #[test]
