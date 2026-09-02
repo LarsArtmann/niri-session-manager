@@ -386,7 +386,9 @@ enum TerminalProfile {
 
 impl TerminalProfile {
     fn from_executable(name: &str) -> Self {
-        match name {
+        let lower = name.to_lowercase();
+        let last_segment = lower.rsplit('.').next().unwrap_or(&lower);
+        match last_segment {
             "kitty" => Self::Kitty,
             "foot" => Self::Foot,
             "wezterm" => Self::Wezterm,
@@ -636,6 +638,13 @@ async fn restore_session_internal(
     app_config: &AppConfig,
 ) -> Result<()> {
     if !file_path.exists() {
+        if config.dry_run {
+            info!(
+                "DRY RUN: no previous session at {} — a real run would build a new session file",
+                file_path.display()
+            );
+            return Ok(());
+        }
         info!("No previous session found at {}", file_path.display());
         info!("Building new session file");
         save_session_with_terminal_state(file_path, app_config).await?;
@@ -938,6 +947,14 @@ async fn save_session_with_backup(
 
 fn create_backup(file_path: &Path) -> Result<()> {
     if file_path.exists() {
+        let contents =
+            fs::read_to_string(file_path).context("Failed to read session file for backup")?;
+        if serde_json::from_str::<SessionData>(&contents).is_err() {
+            warn!(
+                "Existing session file is corrupt; not backing it up (a corrupt backup would evict valid ones from rotation)"
+            );
+            return Ok(());
+        }
         let timestamp = Local::now().to_rfc3339_opts(SecondsFormat::Secs, true);
         let backup_file_name = format!(
             "{}-{}.bak",
@@ -1099,13 +1116,17 @@ async fn main() -> Result<()> {
         info!("Restoring previous session");
         match restore_session(&session_file_path, &config, &app_config).await {
             Ok(()) => {
-                if let Some(id) = &boot_id {
+                if config.dry_run {
+                    info!("DRY RUN: restore marker not written — a real run would restore again");
+                } else if let Some(id) = &boot_id {
                     if let Err(e) = atomic_write(&marker_path, id) {
                         warn!("Failed to write restore marker: {e}");
                     }
                 }
             }
-            Err(e) => warn!("Session restore failed (will retry via periodic save): {e}"),
+            Err(e) => warn!(
+                "Session restore failed (a real restore will be attempted again on next service start): {e}"
+            ),
         }
     }
 
@@ -1712,6 +1733,41 @@ mod tests {
                 assert_eq!(shell, env_shell);
             }
         }
+    }
+
+    #[test]
+    fn create_backup_skips_corrupt_session_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let session_path = tmp.path().join("session.json");
+        fs::write(&session_path, "{CORRUPT").unwrap();
+
+        create_backup(&session_path).unwrap();
+
+        let backups: Vec<_> = fs::read_dir(tmp.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "bak"))
+            .collect();
+        assert!(
+            backups.is_empty(),
+            "corrupt session must not enter the backup rotation"
+        );
+    }
+
+    #[test]
+    fn create_backup_copies_valid_session_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let session_path = tmp.path().join("session.json");
+        fs::write(&session_path, r#"{"version":3,"windows":[]}"#).unwrap();
+
+        create_backup(&session_path).unwrap();
+
+        let backups: Vec<_> = fs::read_dir(tmp.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "bak"))
+            .collect();
+        assert_eq!(backups.len(), 1, "valid session gets exactly one backup");
     }
 
     #[test]
