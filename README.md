@@ -20,6 +20,13 @@ A session manager for the Niri Wayland compositor that automatically saves and r
 - **Structured logging** via `tracing` — journald-native output with timestamps and log levels (control verbosity with `RUST_LOG`)
 - **Startup ordering** — restore completes before periodic save starts, preventing partial-state snapshots
 
+### Behavior Notes
+
+- **One restore per boot.** Restore is gated by a boot id (`/proc/sys/kernel/random/boot_id`) plus a `restore-marker` file next to `session.json`. Reboots always restore; restarting the service within the same boot does not re-spawn windows. Delete the marker file to force a re-restore.
+- **Dry-run changes nothing.** `--dry-run` prints what would be restored — it never spawns windows, never writes `session.json`, and never writes the restore marker.
+- **Retries are within one restore.** `--retry-attempts` controls how often a failing restore retries before giving up (non-fatally); it does not re-attempt across service restarts within the same boot.
+- **Restore is not yet idempotent.** If a restore partially fails and is retried, non-single-instance apps may get duplicate windows. See `TODO_LIST.md`.
+
 ## Usage
 
 ```bash
@@ -142,10 +149,10 @@ Session format is versioned (currently v3). Legacy formats are auto-detected and
 ## Development
 
 ```bash
-cargo build          # build
-cargo test           # run test suite
-cargo clippy         # lint
-cargo fmt            # format
-nix build .#niri-session-manager  # nix build
-nix flake check                  # nix checks
+cargo build                      # build
+cargo test                       # run test suite
+cargo clippy --all-features      # lint (CI runs this exact form)
+cargo fmt --all -- --check       # format check
+nix build .#niri-session-manager # nix build
+nix flake check                  # nix checks (includes treefmt)
 ```
