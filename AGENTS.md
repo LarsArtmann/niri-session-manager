@@ -10,7 +10,7 @@ Context for AI sessions working on this repository.
 
 ```bash
 cargo build                      # build
-cargo test                       # unit tests (60 as of v0.4.0; README says 57 — README is stale)
+cargo test                       # unit tests (63 as of this writing; README intentionally says "test suite")
 cargo clippy --all-features      # lint (CI runs this exact form)
 cargo fmt --all -- --check       # format check (CI enforces)
 nix build                        # build Nix package
@@ -68,6 +68,7 @@ Deliberately two files — do not split further without strong reason:
 
 ## Known Issues (pre-existing, not yours to fix unprompted)
 
-- rust-analyzer reports 2 warnings in `main.rs`: duplicated macro attribute (~line 1134) and dead `shell_escape_empty` (~line 1199).
-- README's "57 tests" count is stale.
 - `docs/status/*.md` are point-in-time reports — re-verify claims against code before acting on them.
+- Everything touching live niri IPC is untested (see Testing); don't assume IPC paths have coverage.
+- `SavedWindow.is_focused` is saved but never used during restore (focus restoration not implemented).
+- Restore is not idempotent across failed restores: if a restore partially spawns windows and then fails, the retry (or next service start without a marker) re-spawns windows for non-single-instance apps. Boot marker is only written on full success.

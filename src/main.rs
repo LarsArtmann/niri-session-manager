@@ -609,10 +609,8 @@ async fn save_session_with_terminal_state(file_path: &Path, app_config: &AppConf
     }
 
     let before_dedupe = saved_windows.len();
-    let saved_windows = dedupe_single_instance_windows(
-        saved_windows,
-        &app_config.single_instance.apps,
-    );
+    let saved_windows =
+        dedupe_single_instance_windows(saved_windows, &app_config.single_instance.apps);
     if saved_windows.len() < before_dedupe {
         info!(
             "Deduped {} extra surface(s) of single-instance apps sharing one process",
@@ -686,8 +684,7 @@ async fn restore_session_internal(
     let terminal_cfg = &app_config.terminal_state;
     let before_terminal_filter = saved_windows.len();
     saved_windows.retain(|w| {
-        let is_terminal =
-            terminal_cfg.enabled && terminal_cfg.terminal_app_ids.contains(&w.app_id);
+        let is_terminal = terminal_cfg.enabled && terminal_cfg.terminal_app_ids.contains(&w.app_id);
         !(is_terminal && w.terminal_state.is_none())
     });
     if saved_windows.len() < before_terminal_filter {
@@ -701,7 +698,10 @@ async fn restore_session_internal(
     for w in &saved_windows {
         *per_app.entry(w.app_id.clone()).or_insert(0) += 1;
     }
-    for (app, count) in per_app.iter().filter(|(_, c)| **c > SAME_APP_RESTORE_WARN_THRESHOLD) {
+    for (app, count) in per_app
+        .iter()
+        .filter(|(_, c)| **c > SAME_APP_RESTORE_WARN_THRESHOLD)
+    {
         warn!(
             "Session file holds {} windows for app '{}' (threshold {}): possible single-instance save leak or poisoned session",
             count, app, SAME_APP_RESTORE_WARN_THRESHOLD
@@ -815,32 +815,31 @@ async fn restore_session_internal(
                             }
                         }
 
-                        let workspace_reference =
-                            match workspace
-                                .name
-                                .as_ref()
-                                .filter(|n| !n.is_empty())
-                                .cloned()
-                                .map(WorkspaceReferenceArg::Name)
-                                .or_else(|| {
-                                    workspace
-                                        .idx
-                                        .filter(|i| *i > 0)
-                                        .map(WorkspaceReferenceArg::Index)
-                                }) {
-                                Some(reference) => Some(reference),
-                                None => {
-                                    info!(
+                        let workspace_reference = match workspace
+                            .name
+                            .as_ref()
+                            .filter(|n| !n.is_empty())
+                            .cloned()
+                            .map(WorkspaceReferenceArg::Name)
+                            .or_else(|| {
+                                workspace
+                                    .idx
+                                    .filter(|i| *i > 0)
+                                    .map(WorkspaceReferenceArg::Index)
+                            }) {
+                            Some(reference) => Some(reference),
+                            None => {
+                                info!(
                                         "Window {} has no saved workspace; leaving it on the active workspace",
                                         win_id
                                     );
-                                    None
-                                }
-                            };
+                                None
+                            }
+                        };
 
                         if let Some(reference) = workspace_reference {
-                            if let Err(e) = move_socket
-                                .send(Request::Action(Action::MoveWindowToWorkspace {
+                            if let Err(e) =
+                                move_socket.send(Request::Action(Action::MoveWindowToWorkspace {
                                     window_id: Some(win_id),
                                     reference,
                                     focus: false,
@@ -1121,7 +1120,7 @@ async fn main() -> Result<()> {
     let save_task = spawn(periodic_save_session(
         session_file_path.clone(),
         config.clone(),
-        app_config,
+        app_config.clone(),
     ));
 
     let signal_task = spawn(handle_shutdown_signals());
@@ -1195,16 +1194,19 @@ mod tests {
 
     #[test]
     fn already_restored_this_boot_matches_trimmed_marker() {
-        let dir = std::env::temp_dir().join(format!(
-            "nsm-marker-test-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("nsm-marker-test-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         let marker = dir.join("restore-marker");
         let boot_id = Some("boot-abc-123".to_string());
-        assert!(!already_restored_this_boot(&boot_id, &marker), "missing marker = not restored");
+        assert!(
+            !already_restored_this_boot(&boot_id, &marker),
+            "missing marker = not restored"
+        );
         atomic_write(&marker, "boot-abc-123\n").unwrap();
-        assert!(already_restored_this_boot(&boot_id, &marker), "matching boot id = restored");
+        assert!(
+            already_restored_this_boot(&boot_id, &marker),
+            "matching boot id = restored"
+        );
         assert!(
             !already_restored_this_boot(&Some("other-boot".to_string()), &marker),
             "different boot id = not restored"
@@ -1265,10 +1267,7 @@ mod tests {
     #[test]
     fn terminal_profile_from_args_plain_app_id() {
         let mapped = vec!["kitty".to_string()];
-        assert_eq!(
-            TerminalProfile::from_args(&mapped),
-            TerminalProfile::Kitty
-        );
+        assert_eq!(TerminalProfile::from_args(&mapped), TerminalProfile::Kitty);
         let unknown = vec!["my-terminal-wrapper".to_string()];
         assert_eq!(
             TerminalProfile::from_args(&unknown),

@@ -16,11 +16,9 @@ let
 
   cliArgs = lib.concatStringsSep " " (
     lib.optional (cfg.saveInterval != null) "--save-interval ${toString cfg.saveInterval}"
-    ++ lib.optional (cfg.maxBackupCount != null)
-      "--max-backup-count ${toString cfg.maxBackupCount}"
+    ++ lib.optional (cfg.maxBackupCount != null) "--max-backup-count ${toString cfg.maxBackupCount}"
     ++ lib.optional (cfg.spawnTimeout != null) "--spawn-timeout ${toString cfg.spawnTimeout}"
-    ++ lib.optional (cfg.retryAttempts != null)
-      "--retry-attempts ${toString cfg.retryAttempts}"
+    ++ lib.optional (cfg.retryAttempts != null) "--retry-attempts ${toString cfg.retryAttempts}"
     ++ lib.optional (cfg.retryDelay != null) "--retry-delay ${toString cfg.retryDelay}"
   );
 in

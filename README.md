@@ -143,7 +143,7 @@ Session format is versioned (currently v3). Legacy formats are auto-detected and
 
 ```bash
 cargo build          # build
-cargo test           # run 57 tests
+cargo test           # run test suite
 cargo clippy         # lint
 cargo fmt            # format
 nix build .#niri-session-manager  # nix build
