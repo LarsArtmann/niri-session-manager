@@ -1131,7 +1131,6 @@ mod tests {
     }
 
     #[test]
-    #[test]
     fn dedupe_single_instance_keeps_one_window_per_pid() {
         let win = |id: u64, app: &str, pid: Option<u32>| SavedWindow {
             id,
@@ -1196,6 +1195,7 @@ mod tests {
         fs::remove_dir_all(&dir).ok();
     }
 
+    #[test]
     fn shell_escape_empty() {
         assert_eq!(shell_escape(""), "''");
     }
