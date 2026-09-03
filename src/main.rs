@@ -1,6 +1,6 @@
 mod proc;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use chrono::{Local, SecondsFormat};
 use clap::Parser;
 use niri_ipc::{
@@ -21,7 +21,7 @@ use tokio::{
     signal::unix::{signal, SignalKind},
     spawn,
     sync::{OwnedSemaphorePermit, Semaphore},
-    task::{JoinHandle, spawn_blocking},
+    task::{spawn_blocking, JoinHandle},
     time::sleep,
     time::Duration,
 };
@@ -375,21 +375,21 @@ fn default_app_config_path() -> Result<PathBuf> {
 /// from the built-in template. With an explicit `--config-file`, a missing
 /// file is an error: the user asked for that exact file.
 fn load_app_config(explicit_path: Option<&Path>) -> Result<AppConfig> {
-    let config_path = match explicit_path {
-        Some(p) => p.to_path_buf(),
-        None => {
-            let p = default_app_config_path()?;
-            if !p.exists() {
-                if let Some(parent) = p.parent() {
-                    fs::create_dir_all(parent)
-                        .with_context(|| format!("Failed to create config directory {}", parent.display()))?;
-                }
-                fs::write(&p, DEFAULT_APP_CONFIG_TOML)
-                    .with_context(|| format!("Failed to write default config to {}", p.display()))?;
-                return Ok(AppConfig::default());
+    let config_path = if let Some(p) = explicit_path {
+        p.to_path_buf()
+    } else {
+        let p = default_app_config_path()?;
+        if !p.exists() {
+            if let Some(parent) = p.parent() {
+                fs::create_dir_all(parent).with_context(|| {
+                    format!("Failed to create config directory {}", parent.display())
+                })?;
             }
-            p
+            fs::write(&p, DEFAULT_APP_CONFIG_TOML)
+                .with_context(|| format!("Failed to write default config to {}", p.display()))?;
+            return Ok(AppConfig::default());
         }
+        p
     };
 
     let config_str = fs::read_to_string(&config_path).context("Failed to read config file")?;
@@ -506,7 +506,7 @@ fn build_terminal_restore_command(
     launch_prefix: &[String],
     profile: TerminalProfile,
     child_cmd: &[String],
-    child_cwd: Option<&str>,
+    working_dir: Option<&str>,
 ) -> Vec<String> {
     let mut cmd: Vec<String> = launch_prefix.to_vec();
 
@@ -515,9 +515,9 @@ fn build_terminal_restore_command(
     }
 
     let home = std::env::var("HOME").unwrap_or_default();
-    let cwd_to_use = child_cwd.filter(|cwd| !cwd.is_empty() && *cwd != home);
+    let effective_cwd = working_dir.filter(|cwd| !cwd.is_empty() && *cwd != home);
 
-    if let Some(cwd) = cwd_to_use {
+    if let Some(cwd) = effective_cwd {
         match profile.cwd_flag() {
             CwdFlag::Separated(flag) => {
                 cmd.push(flag.to_string());
@@ -565,7 +565,12 @@ fn build_spawn_command(
             let args = child_cmd.to_args();
             if !args.is_empty() {
                 let profile = TerminalProfile::from_args(&mapped);
-                return build_terminal_restore_command(&mapped, profile, &args, ts.child_cwd.as_deref());
+                return build_terminal_restore_command(
+                    &mapped,
+                    profile,
+                    &args,
+                    ts.child_cwd.as_deref(),
+                );
             }
         }
     }
@@ -604,8 +609,12 @@ fn atomic_write(file_path: &Path, data: &str) -> Result<()> {
     fs::rename(&tmp_path, file_path).context("Failed to atomically replace session file")?;
 
     if let Some(parent) = file_path.parent() {
-        let dir = fs::File::open(parent)
-            .with_context(|| format!("Failed to open parent directory {} for fsync", parent.display()))?;
+        let dir = fs::File::open(parent).with_context(|| {
+            format!(
+                "Failed to open parent directory {} for fsync",
+                parent.display()
+            )
+        })?;
         dir.sync_all()
             .context("Failed to fsync parent directory after rename")?;
     }
@@ -625,7 +634,7 @@ fn dedupe_single_instance_windows(
             if !single.contains(&w.app_id) {
                 return true;
             }
-            w.pid.map_or(true, |pid| seen_pids.insert(pid))
+            w.pid.is_none_or(|pid| seen_pids.insert(pid))
         })
         .collect()
 }
@@ -851,7 +860,6 @@ fn workspace_matches(saved: &WorkspaceInfo, running: &RunningWindow) -> bool {
 fn plan_spawns(
     saved: &[SavedWindow],
     running: &[RunningWindow],
-    config: &Config,
     app_config: &AppConfig,
 ) -> Vec<SavedWindow> {
     let mut running_by_app: HashMap<&str, Vec<&RunningWindow>> = HashMap::new();
@@ -940,10 +948,7 @@ impl SpawnLimiter {
         }
     }
 
-    async fn acquire(
-        &self,
-        app_id: &str,
-    ) -> Result<(OwnedSemaphorePermit, OwnedSemaphorePermit)> {
+    async fn acquire(&self, app_id: &str) -> Result<(OwnedSemaphorePermit, OwnedSemaphorePermit)> {
         let app_semaphore = {
             let mut per_app = self
                 .per_app
@@ -1007,7 +1012,7 @@ async fn restore_session_internal(
     }
 
     let running = snapshot_running_windows().await?;
-    let to_spawn = plan_spawns(&prepared, &running, config, app_config);
+    let to_spawn = plan_spawns(&prepared, &running, app_config);
     if to_spawn.len() < prepared.len() {
         info!(
             "{} window(s) already running — idempotent restore spawns only the remaining {}",
@@ -1038,8 +1043,11 @@ async fn spawn_windows(
 
     let mut handles: Vec<JoinHandle<Result<usize>>> = Vec::new();
     for saved_window in to_spawn {
-        let command =
-            build_spawn_command(&saved_window.app_id, &saved_window, &app_config.app_mappings);
+        let command = build_spawn_command(
+            &saved_window.app_id,
+            &saved_window,
+            &app_config.app_mappings,
+        );
         let limiter = limiter.clone();
         let claimed = Arc::clone(&claimed);
         let workspaces = workspaces.clone();
@@ -1103,7 +1111,7 @@ async fn spawn_single_window(
         return Ok(0);
     };
 
-    apply_window_placement(win_id, saved_window, workspaces).await;
+    apply_window_placement(win_id, saved_window, workspaces);
 
     if saved_window.is_focused {
         focus_window(win_id, &saved_window.app_id).await;
@@ -1145,7 +1153,7 @@ async fn wait_for_new_window(
 /// Best-effort placement: pin to the saved output if it still exists (with a
 /// workspace-based fallback), move to the saved workspace, never steal focus
 /// with the move itself.
-async fn apply_window_placement(win_id: u64, saved_window: &SavedWindow, workspaces: &[Workspace]) {
+fn apply_window_placement(win_id: u64, saved_window: &SavedWindow, workspaces: &[Workspace]) {
     if let Some(output) = resolve_target_output(&saved_window.workspace, workspaces) {
         let connect = Socket::connect().context("Failed to connect to Niri IPC socket");
         if let Ok(mut move_socket) = connect {
@@ -1230,7 +1238,8 @@ async fn focus_window(win_id: u64, app_id: &str) {
 }
 
 async fn handle_shutdown_signals() -> Result<()> {
-    let mut term_signal = signal(SignalKind::terminate()).context("Failed to listen for SIGTERM")?;
+    let mut term_signal =
+        signal(SignalKind::terminate()).context("Failed to listen for SIGTERM")?;
     let mut int_signal = signal(SignalKind::interrupt()).context("Failed to listen for SIGINT")?;
     let mut quit_signal = signal(SignalKind::quit()).context("Failed to listen for SIGQUIT")?;
 
@@ -1409,8 +1418,8 @@ struct Config {
     dry_run: bool,
 
     /// Override the app-config path (default: XDG config dir, config.toml)
-    #[arg(long, value_name = "PATH")]
-    config_file: Option<PathBuf>,
+    #[arg(long = "config-file", value_name = "PATH")]
+    app_config_path: Option<PathBuf>,
 
     /// Restore the saved session, then exit (no periodic saving)
     #[arg(long, conflicts_with = "save_only")]
@@ -1522,7 +1531,7 @@ async fn main() -> Result<()> {
     info!("Starting niri-session-manager");
     let session_file_path = get_session_file_path()?;
 
-    let app_config = match load_app_config(config.config_file.as_deref()) {
+    let app_config = match load_app_config(config.app_config_path.as_deref()) {
         Ok(cfg) => cfg,
         Err(e) => {
             warn!("Failed to load app config, using defaults: {e}");
@@ -1874,7 +1883,6 @@ mod tests {
     #[test]
     fn build_restore_with_shell_metacharacters() {
         let profile = TerminalProfile::Kitty;
-        let cmd = build_terminal_restore_command(
         let cmd = build_terminal_restore_command(
             &["kitty".to_string()],
             profile,

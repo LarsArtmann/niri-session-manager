@@ -115,9 +115,7 @@ fn resolve_child_process_at(
             .find(|&c| tpgid > 0 && c == tpgid)
             .or_else(|| children.first().copied());
 
-        let Some(next_pid) = next_pid else {
-            return None;
-        };
+        let next_pid = next_pid?;
 
         let Some(comm) = read_comm_at(base, next_pid) else {
             warn!(
