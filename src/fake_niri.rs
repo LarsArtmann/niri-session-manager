@@ -588,13 +588,17 @@ async fn layout_event_triggers_debounced_save() {
     let config = ipc_config();
     let app_config = AppConfig::default();
 
+    eprintln!("TEST: spawning reactive task");
     let task = tokio::spawn(reactive_save_session(session.clone(), config, app_config));
     tokio::time::sleep(Duration::from_millis(300)).await;
+    eprintln!("TEST: 300ms elapsed, pushing event");
 
     niri.push_events(vec![niri_ipc::Event::WindowsChanged { windows: vec![] }]);
+    eprintln!("TEST: event pushed");
 
     // Debounce window (2s) plus slack.
     tokio::time::sleep(Duration::from_millis(3200)).await;
+    eprintln!("TEST: debounce elapsed, asserting");
 
     assert!(
         session.exists(),
