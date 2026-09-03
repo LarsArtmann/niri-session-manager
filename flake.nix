@@ -20,16 +20,13 @@
         function: nixpkgs.lib.genAttrs (import systems) (system: function nixpkgs.legacyPackages.${system});
       treefmtEval = forAllSystems (
         pkgs:
-        treefmt-nix.lib.evalModule pkgs (
-          _:
-          {
-            programs = {
-              nixfmt-rfc-style.enable = true;
-              statix.enable = true;
-            };
-            projectRootFile = "flake.nix";
-          }
-        )
+        treefmt-nix.lib.evalModule pkgs (_: {
+          programs = {
+            nixfmt.enable = true;
+            statix.enable = true;
+          };
+          projectRootFile = "flake.nix";
+        })
       );
       getPlatform = p: p.hostPlatform.system;
     in
