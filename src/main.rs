@@ -127,7 +127,7 @@ impl WorkspaceInfo {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct SavedWindow {
     id: u64,
     app_id: String,
@@ -156,7 +156,7 @@ impl ChildCommand {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct TerminalState {
     child_command: Option<ChildCommand>,
     child_cwd: Option<String>,
@@ -330,16 +330,7 @@ struct AppConfig {
     terminal_state: TerminalStateConfig,
 }
 
-fn load_app_config() -> Result<AppConfig> {
-    let mut config_path = dirs::config_dir().context("Failed to locate config directory")?;
-    config_path.push("niri-session-manager");
-    config_path.push("config.toml");
-
-    if !config_path.exists() {
-        fs::create_dir_all(config_path.parent().unwrap())?;
-        fs::write(
-            &config_path,
-            r#"# Niri Session Manager Configuration
+const DEFAULT_APP_CONFIG_TOML: &str = r#"# Niri Session Manager Configuration
 
 # Apps that should only have one instance
 [single_instance_apps] 
@@ -371,10 +362,35 @@ terminal_app_ids = ["kitty", "foot", "org.wezfurlong.wezterm", "com.mitchellh.gh
 shell_names = ["fish", "bash", "zsh", "sh", "dash", "-fish", "-bash", "-zsh", "-sh", "sudo", "doas"]
 helper_names = ["kitten"]
 max_walk_depth = 20
-"#,
-        )?;
-        return Ok(AppConfig::default());
-    }
+"#;
+
+fn default_app_config_path() -> Result<PathBuf> {
+    let mut config_path = dirs::config_dir().context("Failed to locate config directory")?;
+    config_path.push("niri-session-manager");
+    config_path.push("config.toml");
+    Ok(config_path)
+}
+
+/// Loads the app config. With the default path, a missing file is created
+/// from the built-in template. With an explicit `--config-file`, a missing
+/// file is an error: the user asked for that exact file.
+fn load_app_config(explicit_path: Option<&Path>) -> Result<AppConfig> {
+    let config_path = match explicit_path {
+        Some(p) => p.to_path_buf(),
+        None => {
+            let p = default_app_config_path()?;
+            if !p.exists() {
+                if let Some(parent) = p.parent() {
+                    fs::create_dir_all(parent)
+                        .with_context(|| format!("Failed to create config directory {}", parent.display()))?;
+                }
+                fs::write(&p, DEFAULT_APP_CONFIG_TOML)
+                    .with_context(|| format!("Failed to write default config to {}", p.display()))?;
+                return Ok(AppConfig::default());
+            }
+            p
+        }
+    };
 
     let config_str = fs::read_to_string(&config_path).context("Failed to read config file")?;
 
@@ -1213,10 +1229,10 @@ async fn focus_window(win_id: u64, app_id: &str) {
     }
 }
 
-async fn handle_shutdown_signals() {
-    let mut term_signal = signal(SignalKind::terminate()).expect("Failed to listen for SIGTERM");
-    let mut int_signal = signal(SignalKind::interrupt()).expect("Failed to listen for SIGINT");
-    let mut quit_signal = signal(SignalKind::quit()).expect("Failed to listen for SIGQUIT");
+async fn handle_shutdown_signals() -> Result<()> {
+    let mut term_signal = signal(SignalKind::terminate()).context("Failed to listen for SIGTERM")?;
+    let mut int_signal = signal(SignalKind::interrupt()).context("Failed to listen for SIGINT")?;
+    let mut quit_signal = signal(SignalKind::quit()).context("Failed to listen for SIGQUIT")?;
 
     select! {
         _ = term_signal.recv() => {
@@ -1229,6 +1245,7 @@ async fn handle_shutdown_signals() {
             info!("Received SIGQUIT signal");
         },
     }
+    Ok(())
 }
 
 async fn periodic_save_session(
@@ -1236,7 +1253,7 @@ async fn periodic_save_session(
     config: Config,
     app_config: AppConfig,
 ) {
-    let interval_secs = config.save_interval.max(1) * 60;
+    let interval_secs = config.save_interval.max(1).saturating_mul(60);
     let interval = Duration::from_secs(interval_secs);
 
     info!(
@@ -1330,9 +1347,8 @@ fn cleanup_old_backups(session_dir: &Path, keep_count: usize) -> Result<()> {
         .filter(|entry| {
             entry
                 .path()
-                .file_name()
-                .and_then(|n| n.to_str())
-                .is_some_and(|n| n.ends_with(".bak"))
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("bak"))
         })
         .collect();
 
@@ -1391,6 +1407,109 @@ struct Config {
     /// Preview what would be restored without actually spawning windows or modifying files
     #[arg(long, default_value = "false")]
     dry_run: bool,
+
+    /// Override the app-config path (default: XDG config dir, config.toml)
+    #[arg(long, value_name = "PATH")]
+    config_file: Option<PathBuf>,
+
+    /// Restore the saved session, then exit (no periodic saving)
+    #[arg(long, conflicts_with = "save_only")]
+    restore: bool,
+
+    /// Skip the boot restore and only run periodic saving
+    #[arg(long, conflicts_with = "restore")]
+    save_only: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RunMode {
+    /// Boot restore (marker-gated), then periodic saving until shutdown.
+    Normal,
+    /// Only restore, then exit.
+    RestoreOnly,
+    /// Skip restore, only run periodic saving until shutdown.
+    SaveOnly,
+}
+
+impl Config {
+    const fn run_mode(&self) -> RunMode {
+        if self.restore {
+            RunMode::RestoreOnly
+        } else if self.save_only {
+            RunMode::SaveOnly
+        } else {
+            RunMode::Normal
+        }
+    }
+
+    /// Rejects nonsensical CLI values that would cause silent misbehavior.
+    fn validate(&self) -> Result<()> {
+        if self.save_interval == 0 {
+            bail!("--save-interval must be at least 1 minute");
+        }
+        if self.max_backup_count == 0 {
+            bail!("--max-backup-count must be at least 1");
+        }
+        if self.spawn_timeout == 0 {
+            bail!("--spawn-timeout must be at least 1 second");
+        }
+        if self.max_restore_windows == 0 {
+            bail!("--max-restore-windows must be at least 1");
+        }
+        Ok(())
+    }
+}
+
+const FINAL_SAVE_TIMEOUT_SECS: u64 = 5;
+
+/// One-shot boot restore behind the boot-scoped marker gate. Writes the
+/// marker only after a successful non-dry-run restore.
+async fn run_boot_restore(session_file: &Path, config: &Config, app_config: &AppConfig) {
+    let boot_id = get_boot_id();
+    let marker_path = get_restore_marker_path(session_file);
+    if !should_restore_on_boot(boot_id.as_deref(), &marker_path) {
+        info!(
+            "Session already restored for this boot; skipping restore (marker: {})",
+            marker_path.display()
+        );
+        return;
+    }
+    info!("Restoring previous session");
+    match restore_session(session_file, config, app_config).await {
+        Ok(outcome) => {
+            info!("{outcome}");
+            if config.dry_run {
+                info!("DRY RUN: restore marker not written — a real run would restore again");
+            } else if let Some(id) = &boot_id {
+                if let Err(e) = atomic_write(&marker_path, id) {
+                    warn!("Failed to write restore marker: {e}");
+                }
+            }
+        }
+        Err(e) => warn!(
+            "Session restore failed (a real restore will be attempted again on next service start): {e}"
+        ),
+    }
+}
+
+/// Deterministic shutdown: stop the periodic save, then perform one final
+/// save under a timeout so a wedged niri IPC cannot hang the exit.
+async fn shutdown_with_final_save(
+    save_task: JoinHandle<()>,
+    session_file: &Path,
+    config: &Config,
+    app_config: &AppConfig,
+) {
+    save_task.abort();
+    let _ = save_task.await;
+
+    info!("Saving final session before shutdown");
+    let final_save = save_session_with_backup(session_file, config, app_config);
+    match tokio::time::timeout(Duration::from_secs(FINAL_SAVE_TIMEOUT_SECS), final_save).await {
+        Ok(Ok(())) => info!("Final session saved"),
+        Ok(Err(e)) => error!("Error saving final session: {}", e),
+        Err(_) => warn!("Final save timed out"),
+    }
 }
 
 #[tokio::main]
@@ -1398,25 +1517,12 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
     let config = Config::parse();
-
-    // Validate: reject nonsensical CLI values that would cause silent misbehavior
-    if config.save_interval == 0 {
-        anyhow::bail!("--save-interval must be at least 1 minute");
-    }
-    if config.max_backup_count == 0 {
-        anyhow::bail!("--max-backup-count must be at least 1");
-    }
-    if config.spawn_timeout == 0 {
-        anyhow::bail!("--spawn-timeout must be at least 1 second");
-    }
-    if config.max_restore_windows == 0 {
-        anyhow::bail!("--max-restore-windows must be at least 1");
-    }
+    config.validate()?;
 
     info!("Starting niri-session-manager");
     let session_file_path = get_session_file_path()?;
 
-    let app_config = match load_app_config() {
+    let app_config = match load_app_config(config.config_file.as_deref()) {
         Ok(cfg) => cfg,
         Err(e) => {
             warn!("Failed to load app config, using defaults: {e}");
@@ -1424,33 +1530,19 @@ async fn main() -> Result<()> {
         }
     };
 
-    let boot_id = get_boot_id();
-    let marker_path = get_restore_marker_path(&session_file_path);
-    if already_restored_this_boot(&boot_id, &marker_path) {
-        info!(
-            "Session already restored for this boot; skipping restore (marker: {})",
-            marker_path.display()
-        );
-    } else {
-        info!("Restoring previous session");
-        match restore_session(&session_file_path, &config, &app_config).await {
-            Ok(()) => {
-                if config.dry_run {
-                    info!("DRY RUN: restore marker not written — a real run would restore again");
-                } else if let Some(id) = &boot_id {
-                    if let Err(e) = atomic_write(&marker_path, id) {
-                        warn!("Failed to write restore marker: {e}");
-                    }
-                }
-            }
-            Err(e) => warn!(
-                "Session restore failed (a real restore will be attempted again on next service start): {e}"
-            ),
+    match config.run_mode() {
+        RunMode::SaveOnly => info!("--save-only: skipping boot restore"),
+        RunMode::Normal | RunMode::RestoreOnly => {
+            run_boot_restore(&session_file_path, &config, &app_config).await;
         }
     }
 
     if config.dry_run {
         info!("Dry run complete — exiting without starting periodic save.");
+        return Ok(());
+    }
+    if config.run_mode() == RunMode::RestoreOnly {
+        info!("--restore: restore complete — exiting without starting periodic save.");
         return Ok(());
     }
 
@@ -1460,19 +1552,8 @@ async fn main() -> Result<()> {
         app_config.clone(),
     ));
 
-    let signal_task = spawn(handle_shutdown_signals());
-
-    let _ = signal_task.await;
-    save_task.abort();
-    let _ = save_task.await;
-
-    info!("Saving final session before shutdown");
-    let final_save = save_session_with_backup(&session_file_path, &config, &app_config);
-    match tokio::time::timeout(Duration::from_secs(5), final_save).await {
-        Ok(Ok(())) => info!("Final session saved"),
-        Ok(Err(e)) => error!("Error saving final session: {}", e),
-        Err(_) => warn!("Final save timed out"),
-    }
+    handle_shutdown_signals().await?;
+    shutdown_with_final_save(save_task, &session_file_path, &config, &app_config).await;
 
     info!("Shutdown complete");
     Ok(())
@@ -1530,29 +1611,32 @@ mod tests {
     }
 
     #[test]
-    fn already_restored_this_boot_matches_trimmed_marker() {
-        let dir = std::env::temp_dir().join(format!("nsm-marker-test-{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
-        let marker = dir.join("restore-marker");
-        let boot_id = Some("boot-abc-123".to_string());
+    fn should_restore_on_boot_gate_and_stale_pruning() {
+        let dir = tempfile::tempdir().unwrap();
+        let marker = dir.path().join("restore-marker");
+
         assert!(
-            !already_restored_this_boot(&boot_id, &marker),
-            "missing marker = not restored"
+            should_restore_on_boot(Some("boot-abc-123"), &marker),
+            "missing marker = should restore"
         );
         atomic_write(&marker, "boot-abc-123\n").unwrap();
         assert!(
-            already_restored_this_boot(&boot_id, &marker),
-            "matching boot id = restored"
+            !should_restore_on_boot(Some("boot-abc-123"), &marker),
+            "matching boot id = already restored"
+        );
+        atomic_write(&marker, "older-boot\n").unwrap();
+        assert!(
+            should_restore_on_boot(Some("boot-abc-123"), &marker),
+            "stale marker from a previous boot = should restore"
         );
         assert!(
-            !already_restored_this_boot(&Some("other-boot".to_string()), &marker),
-            "different boot id = not restored"
+            !marker.exists(),
+            "stale marker is pruned so it cannot accumulate forever"
         );
         assert!(
-            !already_restored_this_boot(&None, &marker),
+            should_restore_on_boot(None, &marker),
             "unknown boot id (no /proc access) = never skip"
         );
-        fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
@@ -1672,9 +1756,9 @@ mod tests {
         let profile = TerminalProfile::Kitty;
         let cmd = build_terminal_restore_command(
             &["kitty".to_string()],
-            &profile,
+            profile,
             &["btop".to_string()],
-            &Some("/home/user/projects".to_string()),
+            Some("/home/user/projects"),
         );
         assert_restore_command(
             &cmd,
@@ -1689,9 +1773,9 @@ mod tests {
         let home = std::env::var("HOME").unwrap_or_default();
         let cmd = build_terminal_restore_command(
             &["kitty".to_string()],
-            &profile,
+            profile,
             &["btop".to_string()],
-            &Some(home),
+            Some(home.as_str()),
         );
         assert_restore_command(&cmd, &["kitty", "sh", "-c"], "btop");
     }
@@ -1701,9 +1785,9 @@ mod tests {
         let profile = TerminalProfile::Wezterm;
         let cmd = build_terminal_restore_command(
             &["wezterm".to_string()],
-            &profile,
+            profile,
             &["btop".to_string()],
-            &Some("/home/user/projects".to_string()),
+            Some("/home/user/projects"),
         );
         assert_restore_command(
             &cmd,
@@ -1725,9 +1809,9 @@ mod tests {
         let profile = TerminalProfile::Ghostty;
         let cmd = build_terminal_restore_command(
             &["ghostty".to_string()],
-            &profile,
+            profile,
             &["btop".to_string()],
-            &Some("/home/user/projects".to_string()),
+            Some("/home/user/projects"),
         );
         assert_restore_command(
             &cmd,
@@ -1747,9 +1831,9 @@ mod tests {
         let profile = TerminalProfile::Foot;
         let cmd = build_terminal_restore_command(
             &["foot".to_string()],
-            &profile,
+            profile,
             &["btop".to_string()],
-            &Some("/home/user/projects".to_string()),
+            Some("/home/user/projects"),
         );
         assert_restore_command(
             &cmd,
@@ -1769,9 +1853,9 @@ mod tests {
         let profile = TerminalProfile::Alacritty;
         let cmd = build_terminal_restore_command(
             &["alacritty".to_string()],
-            &profile,
+            profile,
             &["btop".to_string()],
-            &Some("/home/user/projects".to_string()),
+            Some("/home/user/projects"),
         );
         assert_restore_command(
             &cmd,
@@ -1791,10 +1875,11 @@ mod tests {
     fn build_restore_with_shell_metacharacters() {
         let profile = TerminalProfile::Kitty;
         let cmd = build_terminal_restore_command(
+        let cmd = build_terminal_restore_command(
             &["kitty".to_string()],
-            &profile,
+            profile,
             &["echo 'hello'; rm -rf /".to_string()],
-            &None,
+            None,
         );
         assert_eq!(cmd[3], expected_exec_suffix("echo 'hello'; rm -rf /"));
     }
@@ -1804,9 +1889,9 @@ mod tests {
         let profile = TerminalProfile::Kitty;
         let cmd = build_terminal_restore_command(
             &["kitty".to_string()],
-            &profile,
+            profile,
             &["nvim".to_string(), "/path/to file".to_string()],
-            &None,
+            None,
         );
         let expected_suffix = {
             let shell = get_restore_shell();
@@ -1829,9 +1914,9 @@ mod tests {
                 "run".to_string(),
                 "org.myterm".to_string(),
             ],
-            &profile,
+            profile,
             &["btop".to_string()],
-            &None,
+            None,
         );
         assert_eq!(cmd[0], "flatpak");
         assert_eq!(cmd[1], "run");
