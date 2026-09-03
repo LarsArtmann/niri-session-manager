@@ -3276,7 +3276,11 @@ max_walk_depth = 15
         run_import(archive.path(), &session).unwrap();
 
         assert_eq!(fs::read_to_string(&session).unwrap(), incoming);
-        assert_eq!(bak_count(live.path()), 1, "the previous session is backed up");
+        assert_eq!(
+            bak_count(live.path()),
+            2,
+            "the previous session is backed up AND the archive's backups carry over"
+        );
         assert_eq!(bak_count(archive.path()), 1, "the archive keeps its backup");
     }
 

@@ -34,6 +34,8 @@ jobs:
         run: |
           rustup component add clippy
           cargo clippy --all-features
+      - name: Version smoke
+        run: cargo run --quiet -- --version
       - name: Check Nix flake inputs
         uses: DeterminateSystems/flake-checker-action@491a84a640191f0cf972bc81af69b0f6c96ed392 # v4
         with:
@@ -56,3 +58,7 @@ jobs:
         run: git ls-files '*.nix' | nix run nixpkgs#deadnix
       - name: Check for lints and suggestions
         run: nix run nixpkgs#statix -- check
+      - name: Supply chain (cargo-deny)
+        run: nix run nixpkgs#cargo-deny -- check advisories licenses bans sources
+      - name: Living docs citations and links
+        run: bash scripts/docs-citations.sh
