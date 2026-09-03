@@ -111,6 +111,16 @@ impl FakeNiri {
         self.stop.store(true, Ordering::SeqCst);
     }
 
+    /// Takes the env lock with `$NIRI_SOCKET` explicitly REMOVED, for tests
+    /// that require niri to be unreachable.
+    pub(crate) fn env_without_socket() -> SocketEnv {
+        let guard = IPC_ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        std::env::remove_var("NIRI_SOCKET");
+        SocketEnv { _guard: guard }
+    }
+
     /// Points `$NIRI_SOCKET` at this fake for as long as the guard lives.
     pub(crate) fn env(&self) -> SocketEnv {
         let guard = IPC_ENV_LOCK
@@ -227,6 +237,7 @@ fn push_events_forever(
 
 fn handle_request(request: Request, state: &Arc<Mutex<FakeState>>) -> Reply {
     match request {
+        Request::Version => Reply::Ok(Response::Version("niri 25.11 (fake)".to_string())),
         Request::Windows => {
             let mut st = state
                 .lock()
@@ -381,6 +392,7 @@ fn ipc_config() -> Config {
         restore: false,
         save_only: false,
         save_once: false,
+        health_check: false,
     }
 }
 
@@ -596,6 +608,37 @@ async fn shutdown_aborts_periodic_save_then_runs_final_save() {
     assert_eq!(saved.windows[0].app_id, "firefox");
 
     niri.close();
+}
+
+// --- M22: health check ---
+
+#[tokio::test]
+async fn health_check_passes_with_a_live_niri() {
+    let niri = FakeNiri::start();
+    let _env = niri.env();
+    niri.set_windows(vec![fake_window(1, "firefox")]);
+    niri.set_workspaces(vec![niri_workspace(1, 1, Some("dev"), "DP-1")]);
+
+    let session = niri.temp_dir().join("session.json");
+    save_session_file(&session, &[saved_win(1, "firefox", "dev", 1, false)]);
+
+    crate::run_health_check(&session)
+        .await
+        .expect("health check must pass with reachable niri and a valid session file");
+}
+
+#[tokio::test]
+async fn health_check_fails_when_niri_is_unreachable() {
+    let dir = tempfile::tempdir().unwrap();
+    let session = dir.path().join("session.json");
+
+    // No NIRI_SOCKET: the check must fail loudly instead of pretending.
+    // The lock prevents parallel tests from re-pointing the env at their fakes.
+    let _env = env_without_socket();
+    assert!(
+        crate::run_health_check(&session).await.is_err(),
+        "health check without niri must fail"
+    );
 }
 
 // --- M12: event-driven reactive saves ---
