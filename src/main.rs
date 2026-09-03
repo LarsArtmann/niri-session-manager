@@ -1,6 +1,6 @@
 mod proc;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use chrono::{Local, SecondsFormat};
 use clap::Parser;
 use niri_ipc::{
@@ -8,33 +8,38 @@ use niri_ipc::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::io::Write;
 use std::time::UNIX_EPOCH;
 use std::{
     fs,
-    path::Path,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
 use tokio::{
     select,
     signal::unix::{signal, SignalKind},
     spawn,
-    sync::Semaphore,
-    task::spawn_blocking,
+    sync::{OwnedSemaphorePermit, Semaphore},
+    task::{JoinHandle, spawn_blocking},
     time::sleep,
     time::Duration,
 };
 use tracing::{error, info, warn};
 
 async fn niri_send(request: Request) -> Result<Response> {
-    let mut socket = Socket::connect().context("Failed to connect to Niri IPC socket")?;
-    let reply = socket
-        .send(request)
-        .context("Failed to communicate with Niri IPC")?;
-    match reply {
-        Reply::Ok(response) => Ok(response),
-        Reply::Err(error_msg) => anyhow::bail!("Niri IPC returned an error: {}", error_msg),
-    }
+    spawn_blocking(move || {
+        let mut socket = Socket::connect().context("Failed to connect to Niri IPC socket")?;
+        let reply = socket
+            .send(request)
+            .context("Failed to communicate with Niri IPC")?;
+        match reply {
+            Reply::Ok(response) => Ok(response),
+            Reply::Err(error_msg) => anyhow::bail!("Niri IPC returned an error: {}", error_msg),
+        }
+    })
+    .await
+    .context("Niri IPC task join error")?
 }
 
 async fn get_niri_windows() -> Result<Vec<Window>> {
@@ -69,19 +74,36 @@ fn get_boot_id() -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-fn get_restore_marker_path(session_file: &Path) -> std::path::PathBuf {
+fn get_restore_marker_path(session_file: &Path) -> PathBuf {
     session_file
         .parent()
         .unwrap_or_else(|| Path::new("."))
         .join("restore-marker")
 }
 
-fn already_restored_this_boot(boot_id: &Option<String>, marker_path: &Path) -> bool {
-    match boot_id {
-        Some(id) => {
-            fs::read_to_string(marker_path).is_ok_and(|contents| contents.trim() == id.as_str())
+/// Decides whether the boot restore should run.
+///
+/// Without a readable `boot_id` we can never prove a restore already
+/// happened, so we always restore. A marker from a *previous* boot is stale
+/// and gets pruned so it cannot accumulate forever.
+fn should_restore_on_boot(boot_id: Option<&str>, marker_path: &Path) -> bool {
+    let Some(id) = boot_id else {
+        return true;
+    };
+    match fs::read_to_string(marker_path) {
+        Ok(contents) if contents.trim() == id => false,
+        Ok(_) => {
+            if let Err(e) = fs::remove_file(marker_path) {
+                warn!(
+                    "Failed to prune stale restore marker {}: {e}",
+                    marker_path.display()
+                );
+            } else {
+                info!("Pruned stale restore marker from a previous boot");
+            }
+            true
         }
-        None => false,
+        Err(_) => true,
     }
 }
 
@@ -97,14 +119,11 @@ struct WorkspaceInfo {
 
 impl WorkspaceInfo {
     fn from_workspace(ws: Option<&Workspace>) -> Self {
-        match ws {
-            Some(w) => Self {
-                idx: Some(w.idx),
-                name: w.name.clone(),
-                output: w.output.clone(),
-            },
-            None => Self::default(),
-        }
+        ws.map_or_else(Self::default, |w| Self {
+            idx: Some(w.idx),
+            name: w.name.clone(),
+            output: w.output.clone(),
+        })
     }
 }
 
@@ -172,22 +191,59 @@ impl SessionData {
     }
 }
 
-async fn restore_session(file_path: &Path, config: &Config, app_config: &AppConfig) -> Result<()> {
-    let max_attempts = config.retry_attempts.max(1);
-    for attempt in 1..=max_attempts {
-        match restore_session_internal(file_path, config, app_config).await {
-            Ok(()) => return Ok(()),
-            Err(e) if attempt < max_attempts => {
-                warn!(
-                    "Attempt {} failed: {}. Retrying in {} seconds...",
-                    attempt, e, config.retry_delay
-                );
-                sleep(Duration::from_secs(config.retry_delay)).await;
+/// What a restore pass actually decided to do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RestoreOutcome {
+    /// No usable session data existed; a fresh session file was created from
+    /// the current niri state. In dry-run mode nothing was written.
+    SeededNewSession,
+    /// The session file existed but held no restorable windows.
+    NothingToRestore,
+    /// Dry run: no windows were spawned and no files were written.
+    WouldRestore { window_count: usize },
+    /// Restore ran for real; the count is how many spawned windows were
+    /// confirmed visible in niri within their spawn timeout.
+    Restored { spawned: usize },
+}
+
+impl fmt::Display for RestoreOutcome {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::SeededNewSession => {
+                write!(f, "Seeded a new session file from the current state")
             }
-            Err(e) => return Err(e),
+            Self::NothingToRestore => write!(f, "Session file held nothing to restore"),
+            Self::WouldRestore { window_count } => {
+                write!(f, "DRY RUN: would restore {window_count} window(s)")
+            }
+            Self::Restored { spawned } => write!(f, "Restored {spawned} window(s)"),
         }
     }
-    unreachable!("retry loop exhausts via Err(e) return on final attempt")
+}
+
+async fn restore_session(
+    file_path: &Path,
+    config: &Config,
+    app_config: &AppConfig,
+) -> Result<RestoreOutcome> {
+    let attempts = config.retry_attempts.max(1);
+    let mut last_error: Option<anyhow::Error> = None;
+    for attempt in 1..=attempts {
+        match restore_session_internal(file_path, config, app_config).await {
+            Ok(outcome) => return Ok(outcome),
+            Err(e) => {
+                if attempt < attempts {
+                    warn!(
+                        "Attempt {} failed: {}. Retrying in {} seconds...",
+                        attempt, e, config.retry_delay
+                    );
+                    sleep(Duration::from_secs(config.retry_delay)).await;
+                }
+                last_error = Some(e);
+            }
+        }
+    }
+    Err(last_error.unwrap_or_else(|| anyhow::anyhow!("restore failed without a specific error")))
 }
 
 const fn default_enabled() -> bool {
@@ -336,17 +392,17 @@ fn shell_escape(s: &str) -> String {
 #[cfg(target_os = "linux")]
 fn get_shell_from_passwd() -> Option<String> {
     let status = fs::read_to_string("/proc/self/status").ok()?;
-    let uid_line = status.lines().find(|l| l.starts_with("Uid:"))?;
-    let uid = uid_line
-        .split_whitespace()
-        .nth(1)
+    let uid = status
+        .lines()
+        .find(|l| l.starts_with("Uid:"))
+        .and_then(|l| l.split_whitespace().nth(1))
         .and_then(|s| s.parse::<u32>().ok())?;
 
     let passwd = fs::read_to_string("/etc/passwd").ok()?;
     for line in passwd.lines() {
         let fields: Vec<&str> = line.split(':').collect();
-        if fields.len() >= 7 && fields[2].parse::<u32>().ok() == Some(uid) {
-            let shell = fields[6].trim();
+        if fields.get(2).and_then(|f| f.parse::<u32>().ok()) == Some(uid) {
+            let shell = fields.get(6).map(|s| s.trim()).unwrap_or_default();
             if !shell.is_empty() {
                 return Some(shell.to_string());
             }
@@ -406,21 +462,22 @@ impl TerminalProfile {
             .unwrap_or(Self::Generic)
     }
 
-    const fn needs_start_subcommand(&self) -> bool {
+    const fn needs_start_subcommand(self) -> bool {
         matches!(self, Self::Wezterm)
     }
 
-    const fn cwd_flag(&self) -> CwdFlag {
+    const fn cwd_flag(self) -> CwdFlag {
         match self {
             Self::Kitty => CwdFlag::Separated("--directory"),
-            Self::Foot => CwdFlag::Separated("--working-directory"),
+            Self::Foot | Self::Alacritty | Self::Generic => {
+                CwdFlag::Separated("--working-directory")
+            }
             Self::Wezterm => CwdFlag::Separated("--cwd"),
             Self::Ghostty => CwdFlag::Joined("--working-directory="),
-            Self::Alacritty | Self::Generic => CwdFlag::Separated("--working-directory"),
         }
     }
 
-    const fn cmd_flag(&self) -> Option<&'static str> {
+    const fn cmd_flag(self) -> Option<&'static str> {
         match self {
             Self::Kitty | Self::Foot => None,
             Self::Wezterm => Some("--"),
@@ -431,9 +488,9 @@ impl TerminalProfile {
 
 fn build_terminal_restore_command(
     launch_prefix: &[String],
-    profile: &TerminalProfile,
+    profile: TerminalProfile,
     child_cmd: &[String],
-    child_cwd: &Option<String>,
+    child_cwd: Option<&str>,
 ) -> Vec<String> {
     let mut cmd: Vec<String> = launch_prefix.to_vec();
 
@@ -441,15 +498,15 @@ fn build_terminal_restore_command(
         cmd.push("start".to_string());
     }
 
-    let cwd_flag = child_cwd
-        .as_ref()
-        .filter(|cwd| !cwd.is_empty() && **cwd != std::env::var("HOME").unwrap_or_default());
+    let cwd_to_use = child_cwd.filter(|cwd| {
+        !cwd.is_empty() && cwd != std::env::var("HOME").unwrap_or_default().as_str()
+    });
 
-    if let Some(cwd) = cwd_flag {
+    if let Some(cwd) = cwd_to_use {
         match profile.cwd_flag() {
             CwdFlag::Separated(flag) => {
                 cmd.push(flag.to_string());
-                cmd.push(cwd.clone());
+                cmd.push(cwd.to_string());
             }
             CwdFlag::Joined(flag) => {
                 cmd.push(format!("{flag}{cwd}"));
@@ -493,7 +550,7 @@ fn build_spawn_command(
             let args = child_cmd.to_args();
             if !args.is_empty() {
                 let profile = TerminalProfile::from_args(&mapped);
-                return build_terminal_restore_command(&mapped, &profile, &args, &ts.child_cwd);
+                return build_terminal_restore_command(&mapped, profile, &args, ts.child_cwd.as_deref());
             }
         }
     }
@@ -514,6 +571,10 @@ async fn resolve_terminal_state(
         .flatten()
 }
 
+/// Atomic file write: temp file + fsync of file contents + rename + fsync of
+/// the parent directory. The parent-dir fsync is what makes the rename itself
+/// durable across a power loss; without it the machine can come back with the
+/// previous session file (or no file at all).
 fn atomic_write(file_path: &Path, data: &str) -> Result<()> {
     let tmp_path = file_path.with_extension("json.tmp");
 
@@ -526,6 +587,13 @@ fn atomic_write(file_path: &Path, data: &str) -> Result<()> {
     drop(file);
 
     fs::rename(&tmp_path, file_path).context("Failed to atomically replace session file")?;
+
+    if let Some(parent) = file_path.parent() {
+        let dir = fs::File::open(parent)
+            .with_context(|| format!("Failed to open parent directory {} for fsync", parent.display()))?;
+        dir.sync_all()
+            .context("Failed to fsync parent directory after rename")?;
+    }
 
     Ok(())
 }
@@ -542,10 +610,7 @@ fn dedupe_single_instance_windows(
             if !single.contains(&w.app_id) {
                 return true;
             }
-            match w.pid {
-                Some(pid) => seen_pids.insert(pid),
-                None => true,
-            }
+            w.pid.map_or(true, |pid| seen_pids.insert(pid))
         })
         .collect()
 }
@@ -571,7 +636,8 @@ async fn save_session_with_terminal_state(file_path: &Path, app_config: &AppConf
         let app_id = window.app_id.clone().unwrap_or_default();
         let pid = window
             .pid
-            .and_then(|p| if p > 0 { Some(p as u32) } else { None });
+            .and_then(|p| u32::try_from(p).ok())
+            .filter(|p| *p > 0);
 
         let terminal_state = if terminal_config.enabled {
             match pid {
@@ -604,7 +670,7 @@ async fn save_session_with_terminal_state(file_path: &Path, app_config: &AppConf
     if saved_windows.len() < skipped {
         info!(
             "Not saving {} window(s) of skip-listed apps",
-            skipped - saved_windows.len()
+            skipped.saturating_sub(saved_windows.len())
         );
     }
 
@@ -614,7 +680,7 @@ async fn save_session_with_terminal_state(file_path: &Path, app_config: &AppConf
     if saved_windows.len() < before_dedupe {
         info!(
             "Deduped {} extra surface(s) of single-instance apps sharing one process",
-            before_dedupe - saved_windows.len()
+            before_dedupe.saturating_sub(saved_windows.len())
         );
     }
 
