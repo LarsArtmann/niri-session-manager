@@ -653,23 +653,29 @@ async fn unchanged_layout_skips_backup_and_write() {
             .count()
     };
 
+    eprintln!("TEST: save 1");
     save_session_with_backup(&session, &config, &app_config)
         .await
         .unwrap();
+    eprintln!("TEST: save 1 done, exists={}", session.exists());
     assert!(session.exists());
     assert_eq!(backup_count(), 0, "no backup before any prior file");
 
     // Identical layout: no backup rotation, no write churn.
+    eprintln!("TEST: save 2");
     save_session_with_backup(&session, &config, &app_config)
         .await
         .unwrap();
-    assert_eq!(backup_count(), 1 - 1, "unchanged layout must not rotate backups");
+    eprintln!("TEST: save 2 done");
+    assert_eq!(backup_count(), 0, "unchanged layout must not rotate backups");
 
     // Changed layout: exactly one new backup of the previous file.
+    eprintln!("TEST: save 3");
     niri.set_windows(vec![fake_window(1, "firefox"), fake_window(2, "chromium")]);
     save_session_with_backup(&session, &config, &app_config)
         .await
         .unwrap();
+    eprintln!("TEST: save 3 done");
     assert_eq!(backup_count(), 1, "a real change rotates exactly one backup");
 }
 
