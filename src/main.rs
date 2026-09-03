@@ -78,8 +78,9 @@ fn get_restore_marker_path(session_file: &Path) -> std::path::PathBuf {
 
 fn already_restored_this_boot(boot_id: &Option<String>, marker_path: &Path) -> bool {
     match boot_id {
-        Some(id) => fs::read_to_string(marker_path)
-            .is_ok_and(|contents| contents.trim() == id.as_str()),
+        Some(id) => {
+            fs::read_to_string(marker_path).is_ok_and(|contents| contents.trim() == id.as_str())
+        }
         None => false,
     }
 }
@@ -721,7 +722,8 @@ async fn restore_session_internal(
         for w in &saved_windows {
             let ws_name = w.workspace.name.clone().unwrap_or_else(|| {
                 w.workspace
-                    .idx.map_or_else(|| "?".to_string(), |i| i.to_string())
+                    .idx
+                    .map_or_else(|| "?".to_string(), |i| i.to_string())
             });
             let cmd = build_spawn_command(&w.app_id, w, &app_config.app_mappings);
             info!("  {} -> workspace [{}]: {:?}", w.app_id, ws_name, cmd);
@@ -820,7 +822,9 @@ async fn restore_session_internal(
                                     .idx
                                     .filter(|i| *i > 0)
                                     .map(WorkspaceReferenceArg::Index)
-                            }) { Some(reference) } else {
+                            }) {
+                            Some(reference)
+                        } else {
                             info!(
                                     "Window {} has no saved workspace; leaving it on the active workspace",
                                     win_id

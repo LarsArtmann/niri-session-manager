@@ -115,7 +115,9 @@ fn resolve_child_process_at(
             .find(|&c| tpgid > 0 && c == tpgid)
             .unwrap_or(children[0]);
 
-        let comm = if let Some(c) = read_comm_at(base, next_pid) { c } else {
+        let comm = if let Some(c) = read_comm_at(base, next_pid) {
+            c
+        } else {
             warn!(
                 "[proc] could not read comm for PID {} (child of {})",
                 next_pid, current
