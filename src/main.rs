@@ -38,7 +38,7 @@ async fn niri_send(request: Request) -> Result<Response> {
             .context("Failed to communicate with Niri IPC")?;
         match reply {
             Reply::Ok(response) => Ok(response),
-            Reply::Err(error_msg) => anyhow::bail!("Niri IPC returned an error: {}", error_msg),
+            Reply::Err(error_msg) => anyhow::bail!("Niri IPC returned an error: {error_msg}"),
         }
     })
     .await
@@ -1304,7 +1304,7 @@ async fn handle_shutdown_signals() -> Result<()> {
 const SAVE_DEBOUNCE_SECS: u64 = 2;
 
 /// Whether a niri event can change what a session save would capture.
-fn layout_relevant(event: &niri_ipc::Event) -> bool {
+const fn layout_relevant(event: &niri_ipc::Event) -> bool {
     use niri_ipc::Event;
     matches!(
         event,
@@ -1405,11 +1405,11 @@ async fn drive_event_driven_saves(
         if rx.recv().await.is_none() {
             break;
         }
-        let mut settle = sleep(debounce);
+        let settle = sleep(debounce);
         tokio::pin!(settle);
         loop {
             tokio::select! {
-                _ = &mut settle => break,
+                () = &mut settle => break,
                 maybe = rx.recv() => match maybe {
                     Some(()) => {
                         settle.as_mut().reset(tokio::time::Instant::now() + debounce);
@@ -2944,7 +2944,7 @@ max_walk_depth = 15
         let shell = get_restore_shell();
 
         assert!(
-            !shell.is_empty() && shell != "",
+            !shell.is_empty() && !shell.is_empty(),
             "SHELL unset must not produce an empty shell command"
         );
         assert!(

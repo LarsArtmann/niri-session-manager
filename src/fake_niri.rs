@@ -1,7 +1,7 @@
 //! A minimal in-process fake niri IPC server for integration tests.
 //!
 //! Speaks just enough of the niri protocol (Windows, Workspaces, and the
-//! Spawn / MoveWindowToMonitor / MoveWindowToWorkspace / FocusWindow actions)
+//! Spawn / `MoveWindowToMonitor` / `MoveWindowToWorkspace` / `FocusWindow` actions)
 //! to exercise the real restore, save, and shutdown code paths end-to-end.
 //! Spawned windows are simulated: they appear in the next `Windows` reply.
 //!
@@ -29,7 +29,7 @@ static IPC_ENV_LOCK: Mutex<()> = Mutex::new(());
 
 /// Holds the env lock and points `$NIRI_SOCKET` at the fake server; removing
 /// the variable on drop.
-pub(crate) struct SocketEnv {
+pub struct SocketEnv {
     _guard: std::sync::MutexGuard<'static, ()>,
 }
 
@@ -41,7 +41,7 @@ impl Drop for SocketEnv {
 
 /// Actions the fake server observed, in arrival order.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum RecordedAction {
+pub enum RecordedAction {
     MoveToMonitor {
         window: Option<u64>,
         output: String,
@@ -69,7 +69,7 @@ struct FakeState {
     pending_events: Vec<niri_ipc::Event>,
 }
 
-pub(crate) struct FakeNiri {
+pub struct FakeNiri {
     dir: tempfile::TempDir,
     socket_path: PathBuf,
     state: Arc<Mutex<FakeState>>,
@@ -105,7 +105,7 @@ impl FakeNiri {
     }
 
     /// Stops the fake's event-push loops and closes their connections so a
-    /// test's blocked reader threads (spawn_blocking) can exit before the
+    /// test's blocked reader threads (`spawn_blocking`) can exit before the
     /// tokio runtime drops (its drop waits for blocking tasks).
     pub(crate) fn close(&self) {
         self.stop.store(true, Ordering::SeqCst);
@@ -153,9 +153,7 @@ impl FakeNiri {
     }
 
     pub(crate) fn push_events(&self, events: Vec<niri_ipc::Event>) {
-        self.lock()
-            .pending_events
-            .extend(events);
+        self.lock().pending_events.extend(events);
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, FakeState> {
@@ -313,7 +311,7 @@ fn handle_action(action: Action, state: &Arc<Mutex<FakeState>>) -> Reply {
     }
 }
 
-pub(crate) fn fake_window(id: u64, app_id: &str) -> Window {
+pub fn fake_window(id: u64, app_id: &str) -> Window {
     Window {
         id,
         title: None,
@@ -334,7 +332,7 @@ pub(crate) fn fake_window(id: u64, app_id: &str) -> Window {
     }
 }
 
-pub(crate) fn niri_workspace(id: u64, idx: u8, name: Option<&str>, output: &str) -> Workspace {
+pub fn niri_workspace(id: u64, idx: u8, name: Option<&str>, output: &str) -> Workspace {
     Workspace {
         id,
         idx,
@@ -669,7 +667,10 @@ async fn unchanged_layout_skips_backup_and_write() {
     eprintln!("TEST: save 2");
     let cap2 = crate::capture_session_json(&app_config).await.unwrap();
     eprintln!("CAP2: {cap2}");
-    eprintln!("FILELEN: {}", std::fs::read_to_string(&session).unwrap().len());
+    eprintln!(
+        "FILELEN: {}",
+        std::fs::read_to_string(&session).unwrap().len()
+    );
     eprintln!("CAP2LEN: {}", cap2.len());
     let before = backup_count();
     let file_bytes = std::fs::read(&session).unwrap();
@@ -681,11 +682,12 @@ async fn unchanged_layout_skips_backup_and_write() {
     save_session_with_backup(&session, &config, &app_config)
         .await
         .unwrap();
-    eprintln!(
-        "TEST: save 2 done, after_count={}",
-        backup_count()
+    eprintln!("TEST: save 2 done, after_count={}", backup_count());
+    assert_eq!(
+        backup_count(),
+        0,
+        "unchanged layout must not rotate backups"
     );
-    assert_eq!(backup_count(), 0, "unchanged layout must not rotate backups");
 
     // Changed layout: exactly one new backup of the previous file.
     eprintln!("TEST: save 3");
@@ -694,7 +696,11 @@ async fn unchanged_layout_skips_backup_and_write() {
         .await
         .unwrap();
     eprintln!("TEST: save 3 done");
-    assert_eq!(backup_count(), 1, "a real change rotates exactly one backup");
+    assert_eq!(
+        backup_count(),
+        1,
+        "a real change rotates exactly one backup"
+    );
 }
 
 #[tokio::test]
@@ -723,7 +729,7 @@ async fn boot_restore_writes_marker_and_second_gate_run_is_skipped() {
     );
     let written = std::fs::read_to_string(&marker).unwrap();
     assert!(
-        crate::should_restore_on_boot(Some(written.trim()), &marker) == false,
+        !crate::should_restore_on_boot(Some(written.trim()), &marker),
         "the marker written after restore must gate the next boot-restore for this boot"
     );
 }
