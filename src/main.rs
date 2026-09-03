@@ -2330,4 +2330,371 @@ max_walk_depth = 15
         assert!(config.shell_names.contains(&"fish".to_string()));
         assert_eq!(config.max_walk_depth, 20);
     }
+
+    fn saved_win(id: u64, app: &str, name: Option<&str>, idx: Option<u8>) -> SavedWindow {
+        SavedWindow {
+            id,
+            app_id: app.to_string(),
+            workspace: WorkspaceInfo {
+                idx,
+                name: name.map(String::from),
+                output: None,
+            },
+            is_focused: false,
+            pid: None,
+            terminal_state: None,
+        }
+    }
+
+    fn running_win(id: u64, app: &str, name: Option<&str>, idx: Option<u8>) -> RunningWindow {
+        RunningWindow {
+            id,
+            app_id: Some(app.to_string()),
+            workspace_name: name.map(String::from),
+            workspace_idx: idx,
+        }
+    }
+
+    fn no_ipc_config(dry_run: bool) -> Config {
+        Config {
+            save_interval: 15,
+            max_backup_count: 5,
+            spawn_timeout: 1,
+            retry_attempts: 1,
+            retry_delay: 1,
+            max_restore_windows: 100,
+            dry_run,
+            app_config_path: None,
+            restore: false,
+            save_only: false,
+        }
+    }
+
+    // --- M3: dry-run contract regression tests (fixed in 0.4.0, must not regress) ---
+
+    #[tokio::test]
+    async fn dry_run_with_no_session_writes_nothing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let session = tmp.path().join("session.json");
+        let config = no_ipc_config(true);
+        let app_config = AppConfig::default();
+
+        let outcome = restore_session_internal(&session, &config, &app_config)
+            .await
+            .unwrap();
+
+        assert_eq!(outcome, RestoreOutcome::SeededNewSession);
+        assert!(
+            !session.exists(),
+            "dry run must not create the session file"
+        );
+        assert!(
+            !get_restore_marker_path(&session).exists(),
+            "dry run must not write the restore marker"
+        );
+    }
+
+    #[tokio::test]
+    async fn dry_run_with_existing_session_spawns_nothing_and_modifies_nothing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let session = tmp.path().join("session.json");
+        let original = r#"{"version":3,"windows":[
+            {"id":1,"app_id":"firefox","is_focused":false,"idx":1,"name":"dev"},
+            {"id":2,"app_id":"chromium","is_focused":true,"idx":2}
+        ]}"#;
+        fs::write(&session, original).unwrap();
+        let config = no_ipc_config(true);
+        let app_config = AppConfig::default();
+
+        let outcome = restore_session_internal(&session, &config, &app_config)
+            .await
+            .unwrap();
+
+        assert_eq!(outcome, RestoreOutcome::WouldRestore { window_count: 2 });
+        assert_eq!(
+            fs::read_to_string(&session).unwrap(),
+            original,
+            "dry run must not modify the session file"
+        );
+        assert!(
+            !get_restore_marker_path(&session).exists(),
+            "dry run must not write the restore marker"
+        );
+
+        // A second dry run behaves identically: the marker stays absent.
+        let outcome = restore_session_internal(&session, &config, &app_config)
+            .await
+            .unwrap();
+        assert_eq!(outcome, RestoreOutcome::WouldRestore { window_count: 2 });
+        assert!(!get_restore_marker_path(&session).exists());
+    }
+
+    #[tokio::test]
+    async fn corrupt_session_without_backup_is_reported_as_seed_candidate() {
+        let tmp = tempfile::tempdir().unwrap();
+        let session = tmp.path().join("session.json");
+        fs::write(&session, "{CORRUPT").unwrap();
+        let config = no_ipc_config(true);
+        let app_config = AppConfig::default();
+
+        let outcome = restore_session_internal(&session, &config, &app_config)
+            .await
+            .unwrap();
+
+        assert_eq!(outcome, RestoreOutcome::SeededNewSession);
+        assert_eq!(
+            fs::read_to_string(&session).unwrap(),
+            "{CORRUPT",
+            "dry run must not overwrite the corrupt file"
+        );
+    }
+
+    #[test]
+    fn run_mode_and_validation_work_together() {
+        let mut config = no_ipc_config(false);
+        assert_eq!(config.run_mode(), RunMode::Normal);
+        config.restore = true;
+        assert_eq!(config.run_mode(), RunMode::RestoreOnly);
+        config.restore = false;
+        config.save_only = true;
+        assert_eq!(config.run_mode(), RunMode::SaveOnly);
+
+        config.save_interval = 0;
+        assert!(config.validate().is_err());
+        config.save_interval = 15;
+        config.max_restore_windows = 0;
+        assert!(config.validate().is_err());
+        config.max_restore_windows = 100;
+        assert!(config.validate().is_ok());
+    }
+
+    // --- M9: idempotent restore planning (ROADMAP Q2: workspace-first, count-capped) ---
+
+    #[test]
+    fn plan_spawns_skips_windows_already_on_their_workspace() {
+        let saved = vec![
+            saved_win(1, "firefox", Some("dev"), Some(1)),
+            saved_win(2, "firefox", Some("dev"), Some(1)),
+            saved_win(3, "firefox", Some("dev"), Some(1)),
+        ];
+        let running = vec![running_win(10, "firefox", Some("dev"), Some(1))];
+
+        let to_spawn = plan_spawns(&saved, &running, &AppConfig::default());
+
+        assert_eq!(to_spawn.len(), 2, "only the deficit (3−1) is spawned");
+        assert_eq!(
+            to_spawn.iter().map(|w| w.id).collect::<Vec<_>>(),
+            vec![2, 3],
+            "entry 1 was satisfied by the running window; the rest spawn in saved order"
+        );
+    }
+
+    #[test]
+    fn plan_spawns_caps_at_deficit_when_no_workspace_matches() {
+        let saved = vec![
+            saved_win(1, "firefox", Some("dev"), Some(1)),
+            saved_win(2, "firefox", Some("dev"), Some(1)),
+        ];
+        // One firefox running, but on a different workspace: no name match.
+        // The count cap still limits spawning to the deficit of 1.
+        let running = vec![running_win(10, "firefox", Some("other"), Some(2))];
+
+        let to_spawn = plan_spawns(&saved, &running, &AppConfig::default());
+
+        assert_eq!(to_spawn.len(), 1, "count cap: saved 2 − running 1 = 1");
+    }
+
+    #[test]
+    fn plan_spawns_returns_empty_when_everything_already_runs() {
+        let saved = vec![
+            saved_win(1, "firefox", Some("dev"), Some(1)),
+            saved_win(2, "firefox", Some("web"), Some(2)),
+        ];
+        let running = vec![
+            running_win(10, "firefox", Some("dev"), Some(1)),
+            running_win(11, "firefox", Some("web"), Some(2)),
+        ];
+
+        let to_spawn = plan_spawns(&saved, &running, &AppConfig::default());
+
+        assert!(to_spawn.is_empty(), "re-restore must be a no-op");
+    }
+
+    #[test]
+    fn plan_spawns_falls_back_to_workspace_index_when_names_missing() {
+        let saved = vec![
+            saved_win(1, "kitty", None, Some(2)),
+            saved_win(2, "kitty", None, Some(2)),
+        ];
+        let running = vec![running_win(10, "kitty", None, Some(2))];
+
+        let to_spawn = plan_spawns(&saved, &running, &AppConfig::default());
+
+        assert_eq!(to_spawn.len(), 1, "index match satisfies one entry");
+    }
+
+    #[test]
+    fn plan_spawns_skips_single_instance_app_when_any_instance_runs() {
+        let saved = vec![
+            saved_win(1, "zen", Some("dev"), Some(1)),
+            saved_win(2, "zen", Some("web"), Some(2)),
+        ];
+        let running = vec![running_win(10, "zen", Some("web"), Some(2))];
+        let app_config = AppConfig {
+            single_instance: SingleInstanceAppsConfig {
+                apps: vec!["zen".to_string()],
+            },
+            ..Default::default()
+        };
+
+        let to_spawn = plan_spawns(&saved, &running, &app_config);
+
+        assert!(
+            to_spawn.is_empty(),
+            "single-instance apps stay skipped when any instance runs"
+        );
+    }
+
+    #[test]
+    fn plan_spawns_skips_skip_listed_apps() {
+        let saved = vec![saved_win(1, "discord", Some("dev"), Some(1))];
+        let app_config = AppConfig {
+            skip_apps: SkipAppsConfig {
+                apps: vec!["discord".to_string()],
+            },
+            ..Default::default()
+        };
+
+        let to_spawn = plan_spawns(&saved, &[], &app_config);
+
+        assert!(to_spawn.is_empty());
+    }
+
+    #[test]
+    fn plan_spawns_ignores_other_apps_running_windows() {
+        let saved = vec![saved_win(1, "firefox", Some("dev"), Some(1))];
+        let running = vec![running_win(10, "chromium", Some("dev"), Some(1))];
+
+        let to_spawn = plan_spawns(&saved, &running, &AppConfig::default());
+
+        assert_eq!(
+            to_spawn.len(),
+            1,
+            "another app on the same workspace does not satisfy this entry"
+        );
+    }
+
+    #[test]
+    fn plan_spawns_never_spawns_more_than_saved() {
+        let saved = vec![saved_win(1, "firefox", Some("dev"), Some(1))];
+        // Many firefox instances running on different workspaces.
+        let running = vec![
+            running_win(10, "firefox", Some("x"), Some(1)),
+            running_win(11, "firefox", Some("y"), Some(2)),
+            running_win(12, "firefox", Some("z"), Some(3)),
+        ];
+
+        let to_spawn = plan_spawns(&saved, &running, &AppConfig::default());
+
+        assert!(to_spawn.is_empty(), "running ≥ saved means spawn nothing");
+    }
+
+    // --- M14: output fallback when the saved output no longer exists ---
+
+    fn niri_workspace(id: u64, idx: u8, name: Option<&str>, output: &str) -> Workspace {
+        Workspace {
+            id,
+            idx,
+            name: name.map(String::from),
+            output: Some(output.to_string()),
+            is_urgent: false,
+            is_active: false,
+            is_focused: false,
+            active_window_id: None,
+        }
+    }
+
+    #[test]
+    fn resolve_output_keeps_existing_saved_output() {
+        let saved = WorkspaceInfo {
+            idx: Some(1),
+            name: Some("dev".to_string()),
+            output: Some("DP-1".to_string()),
+        };
+        let workspaces = vec![niri_workspace(1, 1, Some("dev"), "DP-1")];
+        assert_eq!(
+            resolve_target_output(&saved, &workspaces),
+            Some("DP-1".to_string())
+        );
+    }
+
+    #[test]
+    fn resolve_output_falls_back_to_host_of_named_workspace() {
+        let saved = WorkspaceInfo {
+            idx: Some(1),
+            name: Some("dev".to_string()),
+            output: Some("HDMI-A-1".to_string()),
+        };
+        // The saved output is gone; the workspace now lives on DP-2.
+        let workspaces = vec![niri_workspace(1, 1, Some("dev"), "DP-2")];
+        assert_eq!(
+            resolve_target_output(&saved, &workspaces),
+            Some("DP-2".to_string()),
+            "docking with a renamed monitor should still place the window"
+        );
+    }
+
+    #[test]
+    fn resolve_output_falls_back_to_index_when_name_misses() {
+        let saved = WorkspaceInfo {
+            idx: Some(3),
+            name: None,
+            output: Some("DP-1".to_string()),
+        };
+        let workspaces = vec![niri_workspace(1, 3, None, "eDP-1")];
+        assert_eq!(
+            resolve_target_output(&saved, &workspaces),
+            Some("eDP-1".to_string())
+        );
+    }
+
+    // --- M4: atomic_write now fsyncs the parent directory too ---
+
+    #[test]
+    fn atomic_write_survives_and_syncs_parent_directory() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("session.json");
+        atomic_write(&path, "data").unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "data");
+        // The parent-dir open+fsync path runs on every write; if it errored,
+        // atomic_write itself would error, so reaching here means it worked.
+    }
+
+    // --- M5: same-app spawns are serialized, different apps are not ---
+
+    #[tokio::test]
+    async fn spawn_limiter_serializes_same_app() {
+        let limiter = SpawnLimiter::new(5);
+        let (app_permit, _global) = limiter.acquire("firefox").await.unwrap();
+
+        let limiter2 = limiter.clone();
+        let second = tokio::spawn(async move { limiter2.acquire("firefox").await });
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(
+            !second.is_finished(),
+            "second firefox spawn must wait for the first to release"
+        );
+
+        drop(app_permit);
+        second.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn spawn_limiter_allows_distinct_apps_in_parallel() {
+        let limiter = SpawnLimiter::new(5);
+        let _a = limiter.acquire("firefox").await.unwrap();
+        let _b = limiter.acquire("kitty").await.unwrap();
+        let _c = limiter.acquire("zen").await.unwrap();
+    }
 }
