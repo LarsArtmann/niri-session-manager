@@ -20,6 +20,7 @@ use niri_ipc::{
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -72,6 +73,7 @@ pub(crate) struct FakeNiri {
     dir: tempfile::TempDir,
     socket_path: PathBuf,
     state: Arc<Mutex<FakeState>>,
+    stop: Arc<AtomicBool>,
 }
 
 impl FakeNiri {
@@ -80,19 +82,33 @@ impl FakeNiri {
         let socket_path = dir.path().join("niri.sock");
         let listener = UnixListener::bind(&socket_path).unwrap();
         let state: Arc<Mutex<FakeState>> = Arc::new(Mutex::new(FakeState::default()));
+        let stop = Arc::new(AtomicBool::new(false));
         let listener_state = Arc::clone(&state);
+        let listener_stop = Arc::clone(&stop);
         std::thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(stream) = stream else { break };
+                if listener_stop.load(Ordering::SeqCst) {
+                    break;
+                }
                 let state = Arc::clone(&listener_state);
-                std::thread::spawn(move || serve_connection(stream, state));
+                let conn_stop = Arc::clone(&listener_stop);
+                std::thread::spawn(move || serve_connection(stream, state, conn_stop));
             }
         });
         Self {
             dir,
             socket_path,
             state,
+            stop,
         }
+    }
+
+    /// Stops the fake's event-push loops and closes their connections so a
+    /// test's blocked reader threads (spawn_blocking) can exit before the
+    /// tokio runtime drops (its drop waits for blocking tasks).
+    pub(crate) fn close(&self) {
+        self.stop.store(true, Ordering::SeqCst);
     }
 
     /// Points `$NIRI_SOCKET` at this fake for as long as the guard lives.
@@ -149,7 +165,7 @@ impl FakeNiri {
     }
 }
 
-fn serve_connection(stream: UnixStream, state: Arc<Mutex<FakeState>>) {
+fn serve_connection(stream: UnixStream, state: Arc<Mutex<FakeState>>, stop: Arc<AtomicBool>) {
     let Ok(mut writer) = stream.try_clone() else {
         return;
     };
@@ -169,7 +185,7 @@ fn serve_connection(stream: UnixStream, state: Arc<Mutex<FakeState>>) {
             if writeln!(writer, "{handled}").is_err() {
                 break;
             }
-            push_events_forever(&state, &mut writer);
+            push_events_forever(&state, &mut writer, stop);
             break;
         }
         let reply = handle_request(request, &state);
@@ -184,8 +200,12 @@ fn serve_connection(stream: UnixStream, state: Arc<Mutex<FakeState>>) {
 
 /// After an `EventStream` handshake: drain queued events as JSON lines,
 /// keeping the connection open so the subscriber sees a live stream.
-fn push_events_forever(state: &Arc<Mutex<FakeState>>, writer: &mut UnixStream) {
-    loop {
+fn push_events_forever(
+    state: &Arc<Mutex<FakeState>>,
+    writer: &mut UnixStream,
+    stop: Arc<AtomicBool>,
+) {
+    while !stop.load(Ordering::SeqCst) {
         let events: Vec<niri_ipc::Event> = {
             let mut st = state
                 .lock()
@@ -573,6 +593,8 @@ async fn shutdown_aborts_periodic_save_then_runs_final_save() {
         "final save snapshots the live fake-compositor state"
     );
     assert_eq!(saved.windows[0].app_id, "firefox");
+
+    niri.close();
 }
 
 // --- M12: event-driven reactive saves ---
@@ -588,17 +610,19 @@ async fn layout_event_triggers_debounced_save() {
     let config = ipc_config();
     let app_config = AppConfig::default();
 
-    eprintln!("TEST: spawning reactive task");
     let task = tokio::spawn(reactive_save_session(session.clone(), config, app_config));
     tokio::time::sleep(Duration::from_millis(300)).await;
-    eprintln!("TEST: 300ms elapsed, pushing event");
 
     niri.push_events(vec![niri_ipc::Event::WindowsChanged { windows: vec![] }]);
-    eprintln!("TEST: event pushed");
 
     // Debounce window (2s) plus slack.
     tokio::time::sleep(Duration::from_millis(3200)).await;
-    eprintln!("TEST: debounce elapsed, asserting");
+
+    // Close the fake's event stream so the task's blocking reader can exit
+    // before the runtime drops (its drop waits for blocking tasks).
+    niri.close();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    task.abort();
 
     assert!(
         session.exists(),
@@ -617,6 +641,7 @@ async fn unchanged_layout_skips_backup_and_write() {
     niri.set_workspaces(vec![niri_workspace(1, 1, Some("dev"), "DP-1")]);
 
     let session = niri.temp_dir().join("session.json");
+    let _env = niri.env();
     let config = ipc_config();
     let app_config = AppConfig::default();
 
