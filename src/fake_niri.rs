@@ -393,6 +393,8 @@ fn ipc_config() -> Config {
         save_only: false,
         save_once: false,
         health_check: false,
+        export_to: None,
+        import_from: None,
     }
 }
 
@@ -642,6 +644,49 @@ async fn health_check_fails_when_niri_is_unreachable() {
 }
 
 // --- M12: event-driven reactive saves ---
+
+/// M29: measures protocol + restore-logic throughput against the fake
+/// compositor. Not a compositing benchmark — it isolates OUR overhead.
+#[tokio::test]
+#[ignore = "benchmark: run explicitly with `cargo test restore_burst -- --ignored --nocapture`"]
+async fn restore_burst_benchmark() {
+    let niri = FakeNiri::start();
+    let _env = niri.env();
+    niri.set_workspaces(vec![
+        niri_workspace(1, 1, Some("ws1"), "DP-1"),
+        niri_workspace(2, 2, Some("ws2"), "DP-1"),
+        niri_workspace(3, 3, Some("ws3"), "DP-1"),
+    ]);
+
+    let session = niri.temp_dir().join("session.json");
+    let windows: Vec<crate::SavedWindow> = (1..=30)
+        .map(|i| {
+            saved_win(
+                i,
+                &format!("app{}", i % 10),
+                "ws1",
+                ((i % 3) + 1) as u8,
+                i == 5,
+            )
+        })
+        .collect();
+    save_session_file(&session, &windows);
+
+    let start = std::time::Instant::now();
+    let outcome = restore_session(&session, &ipc_config(), &AppConfig::default())
+        .await
+        .unwrap();
+    let elapsed = start.elapsed();
+    niri.close();
+
+    assert_eq!(outcome, RestoreOutcome::Restored { spawned: 30 });
+    let per_window = elapsed.as_secs_f64() / 30.0;
+    eprintln!(
+        "BENCH: 30 windows in {elapsed:?} ({:.0} windows/s, {:.1} ms/window)",
+        30.0 / elapsed.as_secs_f64(),
+        per_window * 1000.0
+    );
+}
 
 #[tokio::test]
 async fn layout_event_triggers_debounced_save() {

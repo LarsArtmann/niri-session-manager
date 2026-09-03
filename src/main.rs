@@ -2737,6 +2737,8 @@ max_walk_depth = 15
             save_only: false,
             save_once: false,
             health_check: false,
+            export_to: None,
+            import_from: None,
         }
     }
 
@@ -3205,6 +3207,77 @@ max_walk_depth = 15
 
         let config = AppConfig::default();
         assert!(validate_app_config(&config).is_ok());
+    }
+
+    // --- M29: export / import ---
+
+    fn bak_count(dir: &Path) -> usize {
+        fs::read_dir(dir)
+            .unwrap()
+            .filter_map(std::result::Result::ok)
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "bak"))
+            .count()
+    }
+
+    #[test]
+    fn export_copies_session_and_backups() {
+        let tmp = tempfile::tempdir().unwrap();
+        let session = tmp.path().join("session.json");
+        fs::write(&session, r#"{"version":4,"windows":[]}"#).unwrap();
+        fs::write(tmp.path().join("session-1.bak"), r#"{"version":4,"windows":[]}"#).unwrap();
+        fs::write(tmp.path().join("session-2.bak"), r#"{"version":4,"windows":[]}"#).unwrap();
+        fs::write(tmp.path().join("unrelated.txt"), "keep out").unwrap();
+        let dest = tempfile::tempdir().unwrap();
+
+        run_export(&session, dest.path()).unwrap();
+
+        assert!(dest.path().join("session.json").exists());
+        assert_eq!(bak_count(dest.path()), 2, "both backups are exported");
+        assert!(
+            !dest.path().join("unrelated.txt").exists(),
+            "only session artifacts are exported"
+        );
+    }
+
+    #[test]
+    fn export_fails_without_session_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dest = tempfile::tempdir().unwrap();
+        assert!(run_export(&tmp.path().join("session.json"), dest.path()).is_err());
+    }
+
+    #[test]
+    fn import_refuses_invalid_session_data_and_keeps_live_file() {
+        let archive = tempfile::tempdir().unwrap();
+        fs::write(archive.path().join("session.json"), "{NOT SESSION DATA").unwrap();
+        let live = tempfile::tempdir().unwrap();
+        let session = live.path().join("session.json");
+        fs::write(&session, r#"{"version":4,"windows":[]}"#).unwrap();
+
+        assert!(run_import(archive.path(), &session).is_err());
+        assert_eq!(
+            fs::read_to_string(&session).unwrap(),
+            r#"{"version":4,"windows":[]}"#,
+            "the live session must not be touched by a refused import"
+        );
+    }
+
+    #[test]
+    fn import_replaces_session_and_backs_up_current() {
+        let archive = tempfile::tempdir().unwrap();
+        let incoming = r#"{"version":4,"windows":[{"id":1,"app_id":"firefox","is_focused":false}]}"#;
+        fs::write(archive.path().join("session.json"), incoming).unwrap();
+        fs::write(archive.path().join("session-old.bak"), "{}").unwrap();
+
+        let live = tempfile::tempdir().unwrap();
+        let session = live.path().join("session.json");
+        fs::write(&session, r#"{"version":4,"windows":[]}"#).unwrap();
+
+        run_import(archive.path(), &session).unwrap();
+
+        assert_eq!(fs::read_to_string(&session).unwrap(), incoming);
+        assert_eq!(bak_count(live.path()), 1, "the previous session is backed up");
+        assert_eq!(bak_count(archive.path()), 1, "the archive keeps its backup");
     }
 
     // --- M17: property tests (round-trips, legacy aliases, parse fuzzing) ---
