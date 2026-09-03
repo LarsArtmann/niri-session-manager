@@ -1418,7 +1418,10 @@ async fn drive_event_driven_saves(
                 () = &mut settle => break,
                 maybe = rx.recv() => match maybe {
                     Some(()) => {
-                        settle.as_mut().reset(tokio::time::Instant::now() + debounce);
+                        let next = tokio::time::Instant::now()
+                            .checked_add(debounce)
+                            .unwrap_or_else(tokio::time::Instant::now);
+                        settle.as_mut().reset(next);
                     }
                     None => break 'outer,
                 },
@@ -1560,6 +1563,9 @@ fn cleanup_old_backups(session_dir: &Path, keep_count: usize) -> Result<()> {
 
 #[derive(Parser, Debug, Clone)]
 #[command(author, version, about, long_about = None)]
+// The bools are clap flags, not state modeling: each is an independent,
+// user-facing switch, which is exactly what a CLI struct is for.
+#[allow(clippy::struct_excessive_bools)]
 struct Config {
     #[arg(long, default_value = "15")]
     save_interval: u64,
@@ -2861,7 +2867,7 @@ max_walk_depth = 15
         );
 
         drop(app_permit);
-        second.await.unwrap().unwrap();
+        let (_app, _global) = second.await.unwrap().unwrap();
     }
 
     #[tokio::test]
