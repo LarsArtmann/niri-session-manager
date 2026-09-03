@@ -1301,25 +1301,130 @@ async fn handle_shutdown_signals() -> Result<()> {
     Ok(())
 }
 
-async fn periodic_save_session(
+const SAVE_DEBOUNCE_SECS: u64 = 2;
+
+/// Whether a niri event can change what a session save would capture.
+fn layout_relevant(event: &niri_ipc::Event) -> bool {
+    use niri_ipc::Event;
+    matches!(
+        event,
+        Event::WorkspacesChanged { .. }
+            | Event::WorkspaceActivated { .. }
+            | Event::WorkspaceActiveWindowChanged { .. }
+            | Event::WindowsChanged { .. }
+            | Event::WindowOpenedOrChanged { .. }
+            | Event::WindowClosed { .. }
+            | Event::WindowFocusChanged { .. }
+            | Event::WindowLayoutsChanged { .. }
+    )
+}
+
+/// Long-lived save loop: subscribes to niri's event stream and saves shortly
+/// after layout activity settles (debounced), instead of blind polling.
+/// When the stream is unavailable or dies, falls back to saving at the
+/// configured interval until niri accepts a subscription again.
+async fn reactive_save_session(
     file_path: std::path::PathBuf,
     config: Config,
     app_config: AppConfig,
 ) {
-    let interval_secs = config.save_interval.max(1).saturating_mul(60);
-    let interval = Duration::from_secs(interval_secs);
-
+    let interval = Duration::from_secs(config.save_interval.max(1).saturating_mul(60));
+    let debounce = Duration::from_secs(SAVE_DEBOUNCE_SECS);
     info!(
-        "Starting periodic save task (interval: {} minutes)",
+        "Starting reactive save task (niri event stream, debounce {}s, fallback interval {} min)",
+        SAVE_DEBOUNCE_SECS,
         config.save_interval.max(1)
     );
 
     loop {
-        sleep(interval).await;
-        if let Err(e) = save_session_with_backup(&file_path, &config, &app_config).await {
+        match subscribe_event_stream().await {
+            Ok(read_event) => {
+                drive_event_driven_saves(read_event, &file_path, &config, &app_config, debounce)
+                    .await;
+                info!("Niri event stream ended; reconnecting");
+                sleep(Duration::from_secs(1)).await;
+            }
+            Err(e) => {
+                warn!(
+                    "Niri event stream unavailable ({e}); falling back to periodic saves ({} min)",
+                    config.save_interval.max(1)
+                );
+                loop {
+                    sleep(interval).await;
+                    if let Err(save_err) =
+                        save_session_with_backup(&file_path, &config, &app_config).await
+                    {
+                        error!("Error saving session: {}", save_err);
+                    }
+                    if subscribe_event_stream().await.is_ok() {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+}
+
+async fn subscribe_event_stream(
+) -> Result<impl FnMut() -> std::io::Result<niri_ipc::Event> + Send + 'static> {
+    spawn_blocking(move || {
+        let mut socket = Socket::connect().context("Failed to connect to Niri IPC socket")?;
+        let reply = socket
+            .send(Request::EventStream)
+            .context("Failed to request event stream")?;
+        match reply {
+            Reply::Ok(Response::Handled) => Ok(socket.read_events()),
+            Reply::Err(msg) => anyhow::bail!("Niri refused the event stream: {msg}"),
+            _ => anyhow::bail!("Unexpected reply to event-stream request"),
+        }
+    })
+    .await
+    .context("Event stream task join error")?
+}
+
+/// Saves (debounced) whenever a layout-relevant event arrives; returns when
+/// the event stream dies.
+async fn drive_event_driven_saves(
+    read_event: impl FnMut() -> std::io::Result<niri_ipc::Event> + Send + 'static,
+    file_path: &std::path::Path,
+    config: &Config,
+    app_config: &AppConfig,
+    debounce: Duration,
+) {
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(16);
+    let reader = spawn_blocking(move || {
+        let mut read_event = read_event;
+        while let Ok(event) = read_event() {
+            if layout_relevant(&event) && tx.blocking_send(()).is_err() {
+                break;
+            }
+        }
+    });
+
+    'outer: loop {
+        if rx.recv().await.is_none() {
+            break;
+        }
+        let mut settle = sleep(debounce);
+        tokio::pin!(settle);
+        loop {
+            tokio::select! {
+                _ = &mut settle => break,
+                maybe = rx.recv() => match maybe {
+                    Some(()) => {
+                        settle.as_mut().reset(tokio::time::Instant::now() + debounce);
+                    }
+                    None => break 'outer,
+                },
+            }
+        }
+        if let Err(e) = save_session_with_backup(file_path, config, app_config).await {
             error!("Error saving session: {}", e);
         }
     }
+
+    reader.abort();
+    let _ = reader.await;
 }
 
 async fn save_session_with_backup(
@@ -1472,16 +1577,27 @@ struct Config {
     /// Skip the boot restore and only run periodic saving
     #[arg(long, conflicts_with = "restore")]
     save_only: bool,
+
+    /// Save the current session once, then exit (used by the suspend hook)
+    #[arg(
+        long,
+        conflicts_with = "restore",
+        conflicts_with = "save_only",
+        conflicts_with = "dry_run"
+    )]
+    save_once: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RunMode {
-    /// Boot restore (marker-gated), then periodic saving until shutdown.
+    /// Boot restore (marker-gated), then reactive saving until shutdown.
     Normal,
     /// Only restore, then exit.
     RestoreOnly,
-    /// Skip restore, only run periodic saving until shutdown.
+    /// Skip restore, only run saving until shutdown.
     SaveOnly,
+    /// Save once, then exit.
+    SaveOnce,
 }
 
 impl Config {
@@ -1490,6 +1606,8 @@ impl Config {
             RunMode::RestoreOnly
         } else if self.save_only {
             RunMode::SaveOnly
+        } else if self.save_once {
+            RunMode::SaveOnce
         } else {
             RunMode::Normal
         }
@@ -1584,6 +1702,11 @@ async fn main() -> Result<()> {
     };
 
     match config.run_mode() {
+        RunMode::SaveOnce => {
+            info!("--save-once: saving current session, then exiting");
+            save_session_with_backup(&session_file_path, &config, &app_config).await?;
+            return Ok(());
+        }
         RunMode::SaveOnly => info!("--save-only: skipping boot restore"),
         RunMode::Normal | RunMode::RestoreOnly => {
             run_boot_restore(&session_file_path, &config, &app_config).await;
@@ -1591,15 +1714,15 @@ async fn main() -> Result<()> {
     }
 
     if config.dry_run {
-        info!("Dry run complete — exiting without starting periodic save.");
+        info!("Dry run complete — exiting without starting the save loop.");
         return Ok(());
     }
     if config.run_mode() == RunMode::RestoreOnly {
-        info!("--restore: restore complete — exiting without starting periodic save.");
+        info!("--restore: restore complete — exiting without starting the save loop.");
         return Ok(());
     }
 
-    let save_task = spawn(periodic_save_session(
+    let save_task = spawn(reactive_save_session(
         session_file_path.clone(),
         config.clone(),
         app_config.clone(),
@@ -2412,6 +2535,7 @@ max_walk_depth = 15
             app_config_path: None,
             restore: false,
             save_only: false,
+            save_once: false,
         }
     }
 

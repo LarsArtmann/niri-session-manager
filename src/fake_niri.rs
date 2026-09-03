@@ -11,8 +11,8 @@
 //! race on the variable.
 
 use crate::{
-    get_restore_marker_path, periodic_save_session, restore_session, shutdown_with_final_save,
-    AppConfig, Config, RestoreOutcome, MAX_SPAWN_CONCURRENCY,
+    get_restore_marker_path, reactive_save_session, restore_session, save_session_with_backup,
+    shutdown_with_final_save, AppConfig, Config, RestoreOutcome, MAX_SPAWN_CONCURRENCY,
 };
 use niri_ipc::{
     Action, Reply, Request, Response, Window, WindowLayout, Workspace, WorkspaceReferenceArg,
@@ -65,6 +65,7 @@ struct FakeState {
     next_window_id: u64,
     in_flight: u64,
     max_in_flight: u64,
+    pending_events: Vec<niri_ipc::Event>,
 }
 
 pub(crate) struct FakeNiri {
@@ -135,6 +136,12 @@ impl FakeNiri {
         self.lock().max_in_flight
     }
 
+    pub(crate) fn push_events(&self, events: Vec<niri_ipc::Event>) {
+        self.lock()
+            .pending_events
+            .extend(events);
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, FakeState> {
         self.state
             .lock()
@@ -157,6 +164,14 @@ fn serve_connection(stream: UnixStream, state: Arc<Mutex<FakeState>>) {
         let Ok(request) = serde_json::from_str::<Request>(&line) else {
             break;
         };
+        if matches!(request, Request::EventStream) {
+            let handled = serde_json::to_string(&Reply::Ok(Response::Handled)).unwrap();
+            if writeln!(writer, "{handled}").is_err() {
+                break;
+            }
+            push_events_forever(&state, &mut writer);
+            break;
+        }
         let reply = handle_request(request, &state);
         let Ok(json) = serde_json::to_string(&reply) else {
             break;
@@ -164,6 +179,28 @@ fn serve_connection(stream: UnixStream, state: Arc<Mutex<FakeState>>) {
         if writeln!(writer, "{json}").is_err() {
             break;
         }
+    }
+}
+
+/// After an `EventStream` handshake: drain queued events as JSON lines,
+/// keeping the connection open so the subscriber sees a live stream.
+fn push_events_forever(state: &Arc<Mutex<FakeState>>, writer: &mut UnixStream) {
+    loop {
+        let events: Vec<niri_ipc::Event> = {
+            let mut st = state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            std::mem::take(&mut st.pending_events)
+        };
+        for event in events {
+            let Ok(json) = serde_json::to_string(&event) else {
+                return;
+            };
+            if writeln!(writer, "{json}").is_err() {
+                return;
+            }
+        }
+        std::thread::sleep(Duration::from_millis(30));
     }
 }
 
@@ -322,6 +359,7 @@ fn ipc_config() -> Config {
         app_config_path: None,
         restore: false,
         save_only: false,
+        save_once: false,
     }
 }
 
@@ -519,7 +557,7 @@ async fn shutdown_aborts_periodic_save_then_runs_final_save() {
     let config = ipc_config();
     let app_config = AppConfig::default();
 
-    let save_task = tokio::spawn(periodic_save_session(
+    let save_task = tokio::spawn(reactive_save_session(
         session.clone(),
         config.clone(),
         app_config.clone(),
@@ -535,6 +573,75 @@ async fn shutdown_aborts_periodic_save_then_runs_final_save() {
         "final save snapshots the live fake-compositor state"
     );
     assert_eq!(saved.windows[0].app_id, "firefox");
+}
+
+// --- M12: event-driven reactive saves ---
+
+#[tokio::test]
+async fn layout_event_triggers_debounced_save() {
+    let niri = FakeNiri::start();
+    let _env = niri.env();
+    niri.set_windows(vec![fake_window(1, "firefox"), fake_window(2, "chromium")]);
+    niri.set_workspaces(vec![niri_workspace(1, 1, Some("dev"), "DP-1")]);
+
+    let session = niri.temp_dir().join("session.json");
+    let config = ipc_config();
+    let app_config = AppConfig::default();
+
+    let task = tokio::spawn(reactive_save_session(session.clone(), config, app_config));
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    niri.push_events(vec![niri_ipc::Event::WindowsChanged { windows: vec![] }]);
+
+    // Debounce window (2s) plus slack.
+    tokio::time::sleep(Duration::from_millis(3200)).await;
+
+    assert!(
+        session.exists(),
+        "a layout event must trigger a debounced save"
+    );
+    task.abort();
+}
+
+// --- M28: unchanged saves are skipped entirely ---
+
+#[tokio::test]
+async fn unchanged_layout_skips_backup_and_write() {
+    let niri = FakeNiri::start();
+    let _env = niri.env();
+    niri.set_windows(vec![fake_window(1, "firefox")]);
+    niri.set_workspaces(vec![niri_workspace(1, 1, Some("dev"), "DP-1")]);
+
+    let session = niri.temp_dir().join("session.json");
+    let config = ipc_config();
+    let app_config = AppConfig::default();
+
+    let backup_count = || -> usize {
+        std::fs::read_dir(niri.temp_dir())
+            .unwrap()
+            .filter_map(std::result::Result::ok)
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "bak"))
+            .count()
+    };
+
+    save_session_with_backup(&session, &config, &app_config)
+        .await
+        .unwrap();
+    assert!(session.exists());
+    assert_eq!(backup_count(), 0, "no backup before any prior file");
+
+    // Identical layout: no backup rotation, no write churn.
+    save_session_with_backup(&session, &config, &app_config)
+        .await
+        .unwrap();
+    assert_eq!(backup_count(), 1 - 1, "unchanged layout must not rotate backups");
+
+    // Changed layout: exactly one new backup of the previous file.
+    niri.set_windows(vec![fake_window(1, "firefox"), fake_window(2, "chromium")]);
+    save_session_with_backup(&session, &config, &app_config)
+        .await
+        .unwrap();
+    assert_eq!(backup_count(), 1, "a real change rotates exactly one backup");
 }
 
 #[tokio::test]
