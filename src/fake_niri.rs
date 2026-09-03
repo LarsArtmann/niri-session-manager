@@ -166,6 +166,7 @@ impl FakeNiri {
 }
 
 fn serve_connection(stream: UnixStream, state: Arc<Mutex<FakeState>>, stop: Arc<AtomicBool>) {
+    eprintln!("FAKE: connection accepted");
     let Ok(mut writer) = stream.try_clone() else {
         return;
     };
@@ -178,8 +179,10 @@ fn serve_connection(stream: UnixStream, state: Arc<Mutex<FakeState>>, stop: Arc<
             Ok(_) => {}
         }
         let Ok(request) = serde_json::from_str::<Request>(&line) else {
+            eprintln!("FAKE: undecodable request line: {line:?}");
             break;
         };
+        eprintln!("FAKE: request {:?}", std::mem::discriminant(&request));
         if matches!(request, Request::EventStream) {
             let handled = serde_json::to_string(&Reply::Ok(Response::Handled)).unwrap();
             if writeln!(writer, "{handled}").is_err() {
@@ -641,7 +644,6 @@ async fn unchanged_layout_skips_backup_and_write() {
     niri.set_workspaces(vec![niri_workspace(1, 1, Some("dev"), "DP-1")]);
 
     let session = niri.temp_dir().join("session.json");
-    let _env = niri.env();
     let config = ipc_config();
     let app_config = AppConfig::default();
 
@@ -653,7 +655,7 @@ async fn unchanged_layout_skips_backup_and_write() {
             .count()
     };
 
-    eprintln!("TEST: save 1");
+    eprintln!("TEST: about to save 1");
     save_session_with_backup(&session, &config, &app_config)
         .await
         .unwrap();
