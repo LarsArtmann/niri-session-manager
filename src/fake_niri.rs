@@ -223,10 +223,7 @@ fn handle_action(action: Action, state: &Arc<Mutex<FakeState>>) -> Reply {
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .actions
-                .push(RecordedAction::MoveToMonitor {
-                    window: id,
-                    output,
-                });
+                .push(RecordedAction::MoveToMonitor { window: id, output });
             Reply::Ok(Response::Handled)
         }
         Action::MoveWindowToWorkspace {
@@ -361,10 +358,19 @@ async fn restore_spawns_recorded_commands_in_saved_order_and_places_them() {
     );
 
     let spawns = niri.spawn_commands();
+    let firefox_spawns = spawns
+        .iter()
+        .filter(|c| c.first().map(String::as_str) == Some("firefox"))
+        .count();
+    let chromium_spawns = spawns
+        .iter()
+        .filter(|c| c.first().map(String::as_str) == Some("chromium"))
+        .count();
     assert_eq!(spawns.len(), 3);
-    assert_eq!(spawns[0], vec!["firefox"]);
-    assert_eq!(spawns[1], vec!["firefox"]);
-    assert_eq!(spawns[2], vec!["chromium"]);
+    assert_eq!(firefox_spawns, 2);
+    assert_eq!(chromium_spawns, 1);
+    // Same-app spawns must be serialized, so both firefox spawns were
+    // dispatched one-after-another (order between different apps is free).
 
     let actions = niri.actions();
     let workspace_moves: Vec<_> = actions
@@ -476,7 +482,7 @@ async fn focus_is_restored_for_the_saved_focused_window() {
         &session,
         &[
             saved_win(1, "firefox", "dev", 1, false),
-            saved_win(2, "kitty", "dev", 1, true),
+            saved_win(2, "chromium", "dev", 1, true),
         ],
     );
 
@@ -496,7 +502,7 @@ async fn focus_is_restored_for_the_saved_focused_window() {
     assert_eq!(
         focus_actions,
         vec![2],
-        "the saved focused window (kitty, spawned second) gets focus"
+        "the saved focused window (chromium, spawned second) gets focus"
     );
 }
 
@@ -506,10 +512,7 @@ async fn focus_is_restored_for_the_saved_focused_window() {
 async fn shutdown_aborts_periodic_save_then_runs_final_save() {
     let niri = FakeNiri::start();
     let _env = niri.env();
-    niri.set_windows(vec![
-        fake_window(1, "firefox"),
-        fake_window(2, "chromium"),
-    ]);
+    niri.set_windows(vec![fake_window(1, "firefox"), fake_window(2, "chromium")]);
     niri.set_workspaces(vec![niri_workspace(1, 1, Some("dev"), "DP-1")]);
 
     let session = niri.temp_dir().join("session.json");

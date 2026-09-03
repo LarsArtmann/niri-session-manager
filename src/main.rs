@@ -377,6 +377,17 @@ fn default_app_config_path() -> Result<PathBuf> {
 /// Loads the app config. With the default path, a missing file is created
 /// from the built-in template. With an explicit `--config-file`, a missing
 /// file is an error: the user asked for that exact file.
+/// Rejects config values that would cause silent misbehavior at restore
+/// time.
+fn validate_app_config(app_config: &AppConfig) -> Result<()> {
+    if app_config.terminal_state.max_walk_depth == 0 {
+        bail!(
+            "terminal_state.max_walk_depth must be at least 1 (0 would never walk to any child process)"
+        );
+    }
+    Ok(())
+}
+
 fn load_app_config(explicit_path: Option<&Path>) -> Result<AppConfig> {
     let config_path = if let Some(p) = explicit_path {
         p.to_path_buf()
@@ -398,6 +409,7 @@ fn load_app_config(explicit_path: Option<&Path>) -> Result<AppConfig> {
     let config_str = fs::read_to_string(&config_path).context("Failed to read config file")?;
 
     let config: AppConfig = toml::from_str(&config_str).context("Failed to parse config file")?;
+    validate_app_config(&config)?;
     Ok(config)
 }
 
@@ -630,14 +642,18 @@ fn dedupe_single_instance_windows(
     single_instance_apps: &[String],
 ) -> Vec<SavedWindow> {
     let single: std::collections::HashSet<&String> = single_instance_apps.iter().collect();
-    let mut seen_pids: std::collections::HashSet<u32> = std::collections::HashSet::new();
+    // Per (app, pid): two different single-instance apps can legitimately
+    // share a process id (e.g. wrappers); only duplicate surfaces of the
+    // SAME app collapse.
+    let mut seen_pids: std::collections::HashSet<(String, u32)> = std::collections::HashSet::new();
     windows
         .into_iter()
         .filter(|w| {
             if !single.contains(&w.app_id) {
                 return true;
             }
-            w.pid.is_none_or(|pid| seen_pids.insert(pid))
+            w.pid
+                .is_none_or(|pid| seen_pids.insert((w.app_id.clone(), pid)))
         })
         .collect()
 }
@@ -709,6 +725,20 @@ async fn save_session_with_terminal_state(file_path: &Path, app_config: &AppConf
             "Deduped {} extra surface(s) of single-instance apps sharing one process",
             before_dedupe.saturating_sub(saved_windows.len())
         );
+    }
+
+    if app_config.terminal_state.enabled {
+        let terminals_matched = saved_windows.iter().any(|w| {
+            app_config
+                .terminal_state
+                .terminal_app_ids
+                .contains(&w.app_id)
+        });
+        if !terminals_matched {
+            warn!(
+                "terminal_state is enabled but no terminal windows matched terminal_app_ids — nothing to recover inside terminals"
+            );
+        }
     }
 
     let session = VersionedSession {
@@ -1153,6 +1183,27 @@ async fn wait_for_new_window(
     None
 }
 
+/// Picks the niri workspace reference to move a restored window to.
+///
+/// Names win over indices (they survive workspace reordering). Index 0 is
+/// treated as "no workspace": niri workspaces are 1-based, and legacy files
+/// saved `idx: 0` for unknown workspaces — moving to index 0 would fail on
+/// every spawn, so we leave the window on the active workspace instead.
+fn workspace_reference(workspace: &WorkspaceInfo) -> Option<WorkspaceReferenceArg> {
+    workspace
+        .name
+        .as_ref()
+        .filter(|n| !n.is_empty())
+        .cloned()
+        .map(WorkspaceReferenceArg::Name)
+        .or_else(|| {
+            workspace
+                .idx
+                .filter(|i| *i > 0)
+                .map(WorkspaceReferenceArg::Index)
+        })
+}
+
 /// Best-effort placement: pin to the saved output if it still exists (with a
 /// workspace-based fallback), move to the saved workspace, never steal focus
 /// with the move itself.
@@ -1170,20 +1221,7 @@ fn apply_window_placement(win_id: u64, saved_window: &SavedWindow, workspaces: &
         }
     }
 
-    let workspace_reference = saved_window
-        .workspace
-        .name
-        .as_ref()
-        .filter(|n| !n.is_empty())
-        .cloned()
-        .map(WorkspaceReferenceArg::Name)
-        .or_else(|| {
-            saved_window
-                .workspace
-                .idx
-                .filter(|i| *i > 0)
-                .map(WorkspaceReferenceArg::Index)
-        });
+    let workspace_reference = workspace_reference(&saved_window.workspace);
 
     match workspace_reference {
         Some(reference) => {
@@ -2687,5 +2725,177 @@ max_walk_depth = 15
         let _a = limiter.acquire("firefox").await.unwrap();
         let _b = limiter.acquire("kitty").await.unwrap();
         let _c = limiter.acquire("zen").await.unwrap();
+    }
+
+    // --- M16: coverage batch ---
+
+    #[test]
+    fn cleanup_old_backups_keeps_newest_and_removes_oldest() {
+        let tmp = tempfile::tempdir().unwrap();
+        for i in 0..7 {
+            let path = tmp
+                .path()
+                .join(format!("session-2024-01-0{i}T00:00:00Z.bak"));
+            fs::write(&path, r#"{"version":3,"windows":[]}"#).unwrap();
+            // Distinguish mtimes: sequential writes alone are too fast.
+            std::thread::sleep(std::time::Duration::from_millis(15));
+        }
+
+        cleanup_old_backups(tmp.path(), 5).unwrap();
+
+        let mut remaining: Vec<String> = fs::read_dir(tmp.path())
+            .unwrap()
+            .filter_map(std::result::Result::ok)
+            .filter(|e| e.path().extension().is_some_and(|ext| ext == "bak"))
+            .filter_map(|e| e.file_name().into_string().ok())
+            .collect();
+        remaining.sort();
+        assert_eq!(
+            remaining.len(),
+            5,
+            "rotation keeps exactly keep_count backups"
+        );
+        assert!(
+            !remaining.iter().any(|n| n.contains("01-00")),
+            "the oldest backup is evicted first"
+        );
+        assert!(
+            remaining.iter().any(|n| n.contains("01-06")),
+            "the newest backup is kept"
+        );
+    }
+
+    #[test]
+    fn cleanup_old_backups_ignores_non_backup_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(tmp.path().join("session.json"), "{}").unwrap();
+        fs::write(tmp.path().join("restore-marker"), "boot").unwrap();
+        fs::write(tmp.path().join("session-1.bak"), "{}").unwrap();
+
+        cleanup_old_backups(tmp.path(), 5).unwrap();
+
+        assert!(tmp.path().join("session.json").exists());
+        assert!(tmp.path().join("restore-marker").exists());
+        assert!(tmp.path().join("session-1.bak").exists());
+    }
+
+    #[test]
+    fn dedupe_keeps_same_pid_across_different_single_instance_apps() {
+        let win = |id: u64, app: &str, pid: Option<u32>| SavedWindow {
+            id,
+            app_id: app.to_string(),
+            workspace: WorkspaceInfo::default(),
+            is_focused: false,
+            pid,
+            terminal_state: None,
+        };
+        let windows = vec![
+            win(1, "app-one", Some(42)),
+            win(2, "app-two", Some(42)),
+            win(3, "app-one", Some(42)),
+        ];
+        let out = dedupe_single_instance_windows(
+            windows,
+            &["app-one".to_string(), "app-two".to_string()],
+        );
+        assert_eq!(
+            out.iter().map(|w| w.id).collect::<Vec<_>>(),
+            vec![1, 2],
+            "same pid under a different app is NOT a duplicate surface"
+        );
+    }
+
+    #[test]
+    fn restore_shell_falls_back_when_shell_env_unset() {
+        static SHELL_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let guard = SHELL_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let original = std::env::var("SHELL").ok();
+        std::env::remove_var("SHELL");
+
+        let shell = get_restore_shell();
+
+        assert!(
+            !shell.is_empty() && shell != "",
+            "SHELL unset must not produce an empty shell command"
+        );
+        assert!(
+            shell.starts_with('/') || shell.contains('/'),
+            "fallback must be an absolute path (passwd or /bin/sh), got: {shell}"
+        );
+
+        match original {
+            Some(v) => std::env::set_var("SHELL", v),
+            None => std::env::remove_var("SHELL"),
+        }
+        drop(guard);
+    }
+
+    // --- M18: workspace-reference decision (idx 0 = unknown) + validation + Display ---
+
+    #[test]
+    fn workspace_reference_prefers_name_and_treats_idx_zero_as_unknown() {
+        let ws = |idx: Option<u8>, name: Option<&str>| WorkspaceInfo {
+            idx,
+            name: name.map(String::from),
+            output: None,
+        };
+
+        assert_eq!(
+            workspace_reference(&ws(Some(2), Some("dev"))),
+            Some(WorkspaceReferenceArg::Name("dev".to_string())),
+            "name wins over index"
+        );
+        assert_eq!(
+            workspace_reference(&ws(Some(3), None)),
+            Some(WorkspaceReferenceArg::Index(3))
+        );
+        assert_eq!(
+            workspace_reference(&ws(Some(0), None)),
+            None,
+            "niri is 1-based; legacy idx 0 means unknown — skip the move"
+        );
+        assert_eq!(
+            workspace_reference(&ws(None, Some(""))),
+            None,
+            "empty name falls through to (missing) index"
+        );
+        assert_eq!(workspace_reference(&ws(None, None)), None);
+    }
+
+    #[test]
+    fn app_config_validation_rejects_zero_max_walk_depth() {
+        let config = AppConfig {
+            terminal_state: TerminalStateConfig {
+                max_walk_depth: 0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        assert!(validate_app_config(&config).is_err());
+
+        let config = AppConfig::default();
+        assert!(validate_app_config(&config).is_ok());
+    }
+
+    #[test]
+    fn restore_outcome_display_is_stable_for_humans() {
+        assert_eq!(
+            RestoreOutcome::SeededNewSession.to_string(),
+            "Seeded a new session file from the current state"
+        );
+        assert_eq!(
+            RestoreOutcome::NothingToRestore.to_string(),
+            "Session file held nothing to restore"
+        );
+        assert_eq!(
+            RestoreOutcome::WouldRestore { window_count: 7 }.to_string(),
+            "DRY RUN: would restore 7 window(s)"
+        );
+        assert_eq!(
+            RestoreOutcome::Restored { spawned: 4 }.to_string(),
+            "Restored 4 window(s)"
+        );
     }
 }
