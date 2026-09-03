@@ -165,7 +165,13 @@ struct TerminalState {
     child_cwd: Option<String>,
 }
 
-const SESSION_FORMAT_VERSION: u32 = 3;
+/// Session file format version.
+///
+/// 4 = current key names (`idx`/`name`/`output`, `child_command` as args
+/// array). Files from versions 1-3 still load via `#[serde(alias)]`, so
+/// this constant is descriptive, not enforced: it stamps what a file was
+/// written with; nothing is rejected based on it.
+const SESSION_FORMAT_VERSION: u32 = 4;
 const MAX_SPAWN_CONCURRENCY: usize = 5;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -1432,13 +1438,25 @@ async fn save_session_with_backup(
     config: &Config,
     app_config: &AppConfig,
 ) -> Result<()> {
+    let json_data = capture_session_json(app_config).await?;
+
+    // Layout-hash throttling: when the captured state is byte-identical to
+    // what is already on disk, skip the backup rotation and the write. An
+    // unchanged desktop then produces neither backup churn nor journal
+    // noise.
+    if fs::read_to_string(file_path).is_ok_and(|existing| existing == json_data) {
+        return Ok(());
+    }
+
     create_backup(file_path)?;
 
     if let Some(session_dir) = file_path.parent() {
         cleanup_old_backups(session_dir, config.max_backup_count)?;
     }
 
-    save_session_with_terminal_state(file_path, app_config).await
+    atomic_write(file_path, &json_data).context("Failed to write session file")?;
+    info!("Session saved to {}", file_path.display());
+    Ok(())
 }
 
 fn create_backup(file_path: &Path) -> Result<()> {
@@ -2292,7 +2310,7 @@ mod tests {
             }],
         };
         let json = serde_json::to_string_pretty(&session).unwrap();
-        assert!(json.contains("\"version\": 3"));
+        assert!(json.contains("\"version\": 4"));
         assert!(json.contains("\"windows\""));
         let parsed: SessionData = serde_json::from_str(&json).unwrap();
         assert!(!parsed.is_legacy());
