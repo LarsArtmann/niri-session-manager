@@ -1627,11 +1627,7 @@ struct Config {
 
     /// Validate and import session.json (plus backups) from DIR, backing up the
     /// current session first, then exit
-    #[arg(
-        long,
-        value_name = "DIR",
-        conflicts_with = "export_to"
-    )]
+    #[arg(long, value_name = "DIR", conflicts_with = "export_to")]
     import_from: Option<PathBuf>,
 }
 
@@ -1710,10 +1706,7 @@ fn run_export(session_file: &Path, dest_dir: &Path) -> Result<()> {
             if !is_bak {
                 continue;
             }
-            let dest = dest_dir.join(
-                entry
-                    .file_name(),
-            );
+            let dest = dest_dir.join(entry.file_name());
             if fs::copy(entry.path(), dest).is_ok() {
                 backups = backups.saturating_add(1);
             }
@@ -1741,7 +1734,11 @@ fn run_import(archive_dir: &Path, session_file: &Path) -> Result<()> {
             )
         })?
         .into_windows();
-    info!("Importing {} window(s) from {}", windows.len(), source.display());
+    info!(
+        "Importing {} window(s) from {}",
+        windows.len(),
+        source.display()
+    );
 
     create_backup(session_file)?;
     atomic_write(session_file, &contents)?;
@@ -1787,9 +1784,7 @@ async fn run_health_check(session_file: &Path) -> Result<()> {
     let marker_path = get_restore_marker_path(session_file);
     let boot_id = get_boot_id();
     if should_restore_on_boot(boot_id.as_deref(), &marker_path) {
-        info!(
-            "restore marker: this boot has not been restored yet (or marker is absent/stale)"
-        );
+        info!("restore marker: this boot has not been restored yet (or marker is absent/stale)");
     } else {
         info!("restore marker: this boot was already restored");
     }
@@ -1800,13 +1795,7 @@ async fn run_health_check(session_file: &Path) -> Result<()> {
                 .and_then(|m| m.modified())
                 .ok()
                 .and_then(|m| m.elapsed().ok())
-                .map(|d| {
-                    format!(
-                        "{}m{}s ago",
-                        d.as_secs() / 60,
-                        d.as_secs() % 60
-                    )
-                })
+                .map(|d| format!("{}m{}s ago", d.as_secs() / 60, d.as_secs() % 60))
                 .unwrap_or_else(|| "unknown age".to_string());
             info!(
                 "session file: {} window(s), last written {age}",
@@ -3224,8 +3213,16 @@ max_walk_depth = 15
         let tmp = tempfile::tempdir().unwrap();
         let session = tmp.path().join("session.json");
         fs::write(&session, r#"{"version":4,"windows":[]}"#).unwrap();
-        fs::write(tmp.path().join("session-1.bak"), r#"{"version":4,"windows":[]}"#).unwrap();
-        fs::write(tmp.path().join("session-2.bak"), r#"{"version":4,"windows":[]}"#).unwrap();
+        fs::write(
+            tmp.path().join("session-1.bak"),
+            r#"{"version":4,"windows":[]}"#,
+        )
+        .unwrap();
+        fs::write(
+            tmp.path().join("session-2.bak"),
+            r#"{"version":4,"windows":[]}"#,
+        )
+        .unwrap();
         fs::write(tmp.path().join("unrelated.txt"), "keep out").unwrap();
         let dest = tempfile::tempdir().unwrap();
 
@@ -3265,7 +3262,8 @@ max_walk_depth = 15
     #[test]
     fn import_replaces_session_and_backs_up_current() {
         let archive = tempfile::tempdir().unwrap();
-        let incoming = r#"{"version":4,"windows":[{"id":1,"app_id":"firefox","is_focused":false}]}"#;
+        let incoming =
+            r#"{"version":4,"windows":[{"id":1,"app_id":"firefox","is_focused":false}]}"#;
         fs::write(archive.path().join("session.json"), incoming).unwrap();
         fs::write(archive.path().join("session-old.bak"), "{}").unwrap();
 

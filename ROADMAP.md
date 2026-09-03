@@ -15,23 +15,34 @@ monitor changes.
 Raw ideas:
 
 - Count-based idempotent restore (spawn `saved − running` per app)
+  _Shipped 2026-09-04 with workspace-first matching on top._
 - Per-app spawn serialization to eliminate same-app workspace-swap races
+  _Shipped 2026-09-04 (`SpawnLimiter`)._
 - Output matching by EDID/position instead of name
+  _Partially shipped: workspace-hosting output fallback. True position/EDID
+  matching remains blocked — niri's IPC exposes no output positions._
 - Window size / column-width capture (blocked on niri IPC — evaluate upstream first)
 - Duplicate-window dedup on save (distinct from single-instance dedup)
 - Config hot-reload via file watching (inotify) — restart picks up changes today
 - Per-app restore delay tuning, `--migrate` session-file migration command
+- Graceful socket-timeout join for the event-stream reader
+- Capped exponential backoff for event-stream reconnects
+- Spawn-timeout exponential backoff
+- SSH suspend guard integration
+- journald log-volume review (per-window restore info lines)
+- Cross-platform CI job (macOS build-only; proc module is linux-gated)
+- `nix flake check --all-systems` (aarch64)
+- Split `src/main.rs` into modules once boundaries prove stable
 
 ### 2. Reactive session keeping
 
-Move from periodic polling to a model where the session file is always
-current and restore knows about focus, not just window lists.
+**Shipped 2026-09-04:** niri event-stream subscription with debounced saves
+and an interval fallback, plus focus restoration — see FEATURES.md. What
+remains raw:
 
-Raw ideas:
-
-- niri event-stream subscription: save on layout change, not every 15 minutes
-- Focus restoration (`is_focused` is already saved, never used)
-- Debounced saves to avoid write storms during interactive layout changes
+- Layout-change coalescing beyond the fixed 2s debounce (adaptive quiet
+  windows during interactive drags)
+- Restore knowledge of focus across a multi-monitor focus history
 
 ### 3. Operability
 
@@ -39,21 +50,18 @@ Make the service observable and debuggable without reading its source.
 
 Raw ideas:
 
-- Health-check surface (`--health-check` subcommand or IPC endpoint)
 - systemd notify readiness signaling (`Type=notify`)
 - Spawn-timeout exponential backoff
 - SSH suspend guard integration
 - journald log-volume review (per-window restore info lines)
-- DMS (DankMaterialShell) integration for session state display
-- Dry-run output designed for humans _and_ for snapshot testing
+- Dry-run output designed for humans _and_ for machine diffing
+- IPC health/status endpoint beyond the `--health-check` one-shot
 
 ### 4. Supply chain and packaging
 
 Raw ideas:
 
-- Publish to crates.io
-- cargo-deny in CI, coverage reporting
-- Cross-platform CI job (macOS build-only; proc module is linux-gated)
+- Coverage reporting in CI
 - `nix flake check --all-systems` (aarch64)
 
 ## Open Questions
@@ -86,13 +94,29 @@ Things we are deliberately NOT pursuing and why:
   SystemNix pins this flake; history rewrites break downstream pins.
 - **Building features niri already provides**: before implementing any
   restore-adjacent feature, evaluate niri's native session support to avoid
-  duplicating upstream work.
-- **Window size capture ahead of upstream**: blocked by niri IPC; revisit when
-  upstream exposes layout geometry.
+  duplicating upstream work. **Re-verified 2026-09-04** against niri releases
+  through v26.04: no native session save/restore exists — only static
+  `spawn-at-startup`, manual `window-rule` placement, and the IPC surface this
+  tool builds on. We are complementary, not duplicative. Re-check on major
+  niri releases.
+- **Window size capture ahead of upstream**: blocked by niri IPC (no layout
+  geometry exposed); revisit when upstream exposes it.
 - **Library-ification with structured error types** (`thiserror` at module
   boundaries): premature while the crate is a binary consumed via flake.
 - **Reactive saves before the event-stream foundation exists**: hot-reload and
   backoff ideas stay raw until the subscription model lands.
+  _Superseded 2026-09-04: the event-stream foundation shipped (M12)._
+- **Publishing to crates.io** (evaluated 2026-09-04): the crate is a flake
+  binary with no library API, a `#[cfg(test)]` IPC fake, and Nix as the only
+  supported install path. Publishing adds maintenance (version discipline,
+  README packaging) for no consumer — defer until there is one.
+- **DMS (DankMaterialShell) integration** (spiked 2026-09-04): a session-state
+  display belongs behind a stable health/status surface (`--health-check`
+  today, an IPC endpoint eventually). Defer until DMS expresses interest.
+- **`docs/DOMAIN_LANGUAGE.md`** (deferred 2026-09-04): the domain vocabulary
+  (saved/running/matched/deficit, boot gate, restore outcome) is small and is
+  documented inline in `plan_spawns` and the README Behavior Notes. Revisit
+  when the vocabulary outgrows a page.
 
 ---
 
