@@ -656,6 +656,8 @@ async fn unchanged_layout_skips_backup_and_write() {
     };
 
     eprintln!("TEST: about to save 1");
+    let cap1 = crate::capture_session_json(&app_config).await.unwrap();
+    eprintln!("CAP1: {cap1}");
     save_session_with_backup(&session, &config, &app_config)
         .await
         .unwrap();
@@ -665,10 +667,24 @@ async fn unchanged_layout_skips_backup_and_write() {
 
     // Identical layout: no backup rotation, no write churn.
     eprintln!("TEST: save 2");
+    let cap2 = crate::capture_session_json(&app_config).await.unwrap();
+    eprintln!("CAP2: {cap2}");
+    eprintln!("FILELEN: {}", std::fs::read_to_string(&session).unwrap().len());
+    eprintln!("CAP2LEN: {}", cap2.len());
+    let before = backup_count();
+    let file_bytes = std::fs::read(&session).unwrap();
+    eprintln!(
+        "EQ-CHECK: file==cap2={} before_count={}",
+        file_bytes == cap2.as_bytes(),
+        before
+    );
     save_session_with_backup(&session, &config, &app_config)
         .await
         .unwrap();
-    eprintln!("TEST: save 2 done");
+    eprintln!(
+        "TEST: save 2 done, after_count={}",
+        backup_count()
+    );
     assert_eq!(backup_count(), 0, "unchanged layout must not rotate backups");
 
     // Changed layout: exactly one new backup of the previous file.
