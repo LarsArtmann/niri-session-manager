@@ -498,9 +498,8 @@ fn build_terminal_restore_command(
         cmd.push("start".to_string());
     }
 
-    let cwd_to_use = child_cwd.filter(|cwd| {
-        !cwd.is_empty() && cwd != std::env::var("HOME").unwrap_or_default().as_str()
-    });
+    let home = std::env::var("HOME").unwrap_or_default();
+    let cwd_to_use = child_cwd.filter(|cwd| !cwd.is_empty() && *cwd != home);
 
     if let Some(cwd) = cwd_to_use {
         match profile.cwd_flag() {
@@ -696,32 +695,28 @@ async fn save_session_with_terminal_state(file_path: &Path, app_config: &AppConf
     Ok(())
 }
 
-async fn restore_session_internal(
-    file_path: &Path,
-    config: &Config,
-    app_config: &AppConfig,
-) -> Result<()> {
+/// Reads and parses the session file.
+///
+/// Returns `Ok(None)` when there is no usable session data (missing file, or
+/// a corrupt file with no valid backup): a fresh session should then be
+/// seeded from the current niri state.
+fn load_session_windows(file_path: &Path) -> Result<Option<Vec<SavedWindow>>> {
     if !file_path.exists() {
-        if config.dry_run {
-            info!(
-                "DRY RUN: no previous session at {} — a real run would build a new session file",
-                file_path.display()
-            );
-            return Ok(());
-        }
         info!("No previous session found at {}", file_path.display());
-        info!("Building new session file");
-        save_session_with_terminal_state(file_path, app_config).await?;
-        return Ok(());
+        return Ok(None);
     }
-
     let session_data = fs::read_to_string(file_path).context("Failed to read session file")?;
     if session_data.trim().is_empty() {
         info!("Session file at {} is empty", file_path.display());
-        return Ok(());
+        return Ok(Some(Vec::new()));
     }
-    let session: SessionData = match serde_json::from_str(&session_data) {
-        Ok(s) => s,
+    match serde_json::from_str::<SessionData>(&session_data) {
+        Ok(session) => {
+            if session.is_legacy() {
+                warn!("Session file uses legacy format (no version field). Consider re-saving to upgrade.");
+            }
+            Ok(Some(session.into_windows()))
+        }
         Err(e) => {
             warn!(
                 "Session file at {} is corrupt ({}). Attempting backup recovery...",
@@ -730,36 +725,43 @@ async fn restore_session_internal(
             );
             if let Some((backup_path, backup_data)) = find_latest_valid_backup(file_path) {
                 info!("Recovered session from backup: {}", backup_path.display());
-                backup_data
+                Ok(Some(backup_data.into_windows()))
             } else {
-                warn!("No valid backup found. Starting with empty session.");
-                save_session_with_terminal_state(file_path, app_config).await?;
-                return Ok(());
+                warn!("No valid backup found.");
+                Ok(None)
             }
         }
-    };
-    if session.is_legacy() {
-        warn!("Session file uses legacy format (no version field). Consider re-saving to upgrade.");
     }
-    let mut saved_windows = session.into_windows();
-    saved_windows.sort_by_key(|w| w.workspace.idx.unwrap_or(0));
+}
 
-    let terminal_cfg = &app_config.terminal_state;
-    let before_terminal_filter = saved_windows.len();
-    saved_windows.retain(|w| {
+/// Applies the restore-time filters and caps, with the same warnings as
+/// before: drop terminal windows without captured state, warn about
+/// suspicious per-app counts, cap at `--max-restore-windows`.
+fn prepare_saved_windows(
+    mut windows: Vec<SavedWindow>,
+    config: &Config,
+    terminal_cfg: &TerminalStateConfig,
+) -> Vec<SavedWindow> {
+    windows.sort_by_key(|w| w.workspace.idx.unwrap_or(0));
+
+    let before_terminal_filter = windows.len();
+    windows.retain(|w| {
         let is_terminal = terminal_cfg.enabled && terminal_cfg.terminal_app_ids.contains(&w.app_id);
         !(is_terminal && w.terminal_state.is_none())
     });
-    if saved_windows.len() < before_terminal_filter {
+    if windows.len() < before_terminal_filter {
         warn!(
             "Dropped {} terminal window(s) without captured state: restoring them would spawn empty shells",
-            before_terminal_filter - saved_windows.len()
+            before_terminal_filter.saturating_sub(windows.len())
         );
     }
 
-    let mut per_app: HashMap<String, usize> = HashMap::new();
-    for w in &saved_windows {
-        *per_app.entry(w.app_id.clone()).or_insert(0) += 1;
+    let mut per_app: HashMap<&str, usize> = HashMap::new();
+    for w in &windows {
+        per_app
+            .entry(w.app_id.as_str())
+            .and_modify(|c| *c = c.saturating_add(1))
+            .or_insert(1);
     }
     for (app, count) in per_app
         .iter()
@@ -771,21 +773,210 @@ async fn restore_session_internal(
         );
     }
 
-    if saved_windows.len() > config.max_restore_windows {
+    if windows.len() > config.max_restore_windows {
         warn!(
             "Session holds {} windows; capping restore to {} (--max-restore-windows)",
-            saved_windows.len(),
+            windows.len(),
             config.max_restore_windows
         );
-        saved_windows.truncate(config.max_restore_windows);
+        windows.truncate(config.max_restore_windows);
+    }
+
+    windows
+}
+
+/// A window currently running in niri, joined with its workspace so saved
+/// windows can be matched against it (idempotent restore).
+#[derive(Debug, Clone)]
+struct RunningWindow {
+    id: u64,
+    app_id: Option<String>,
+    workspace_name: Option<String>,
+    workspace_idx: Option<u8>,
+}
+
+async fn snapshot_running_windows() -> Result<Vec<RunningWindow>> {
+    let windows = get_niri_windows().await?;
+    let workspaces = get_niri_workspaces().await?;
+    Ok(windows
+        .iter()
+        .map(|w| {
+            let ws = workspaces.iter().find(|s| w.workspace_id == Some(s.id));
+            RunningWindow {
+                id: w.id,
+                app_id: w.app_id.clone(),
+                workspace_name: ws.and_then(|s| s.name.clone()),
+                workspace_idx: ws.map(|s| s.idx),
+            }
+        })
+        .collect())
+}
+
+/// Whether a running window sits on the workspace a saved window was saved
+/// on. Names are matched first (stable across reorders); index is the
+/// fallback.
+fn workspace_matches(saved: &WorkspaceInfo, running: &RunningWindow) -> bool {
+    if let Some(name) = saved.name.as_deref().filter(|n| !n.is_empty()) {
+        return running.workspace_name.as_deref() == Some(name);
+    }
+    match (saved.idx, running.workspace_idx) {
+        (Some(saved_idx), Some(running_idx)) => saved_idx == running_idx,
+        _ => false,
+    }
+}
+
+/// Decides which saved windows need spawning.
+///
+/// Idempotent-restore semantics (ROADMAP Q2, resolved): per app, match saved
+/// entries to already-running windows **by workspace first**; then cap the
+/// spawn list at `saved − running` so re-running a restore never spawns more
+/// than the deficit. Single-instance apps keep their stronger rule: skipped
+/// entirely when any instance is already running.
+fn plan_spawns(
+    saved: &[SavedWindow],
+    running: &[RunningWindow],
+    config: &Config,
+    app_config: &AppConfig,
+) -> Vec<SavedWindow> {
+    let mut running_by_app: HashMap<&str, Vec<&RunningWindow>> = HashMap::new();
+    for w in running {
+        if let Some(app) = w.app_id.as_deref() {
+            running_by_app.entry(app).or_default().push(w);
+        }
+    }
+
+    let mut saved_count: HashMap<&str, usize> = HashMap::new();
+    for w in saved {
+        saved_count
+            .entry(w.app_id.as_str())
+            .and_modify(|c| *c = c.saturating_add(1))
+            .or_insert(1);
+    }
+
+    let mut matched_ids: HashSet<u64> = HashSet::new();
+    let mut spawned_count: HashMap<&str, usize> = HashMap::new();
+    let mut single_instance_spawned: HashSet<&str> = HashSet::new();
+    let mut to_spawn = Vec::new();
+
+    for window in saved {
+        let app_id = window.app_id.as_str();
+
+        if app_config.skip_apps.apps.iter().any(|s| s == app_id) {
+            info!("Skipping app: {app_id}");
+            continue;
+        }
+
+        let running_of_app: Vec<&RunningWindow> =
+            running_by_app.get(app_id).map_or(Vec::new(), Vec::clone);
+
+        if app_config.single_instance.apps.iter().any(|s| s == app_id) {
+            if !running_of_app.is_empty() || single_instance_spawned.contains(app_id) {
+                info!("Skipping single-instance app: {app_id}");
+                continue;
+            }
+            single_instance_spawned.insert(app_id);
+            to_spawn.push(window.clone());
+            continue;
+        }
+
+        // Workspace-first match: an already-running window on the saved
+        // workspace satisfies this saved entry without spawning.
+        let match_hit = running_of_app
+            .iter()
+            .find(|r| !matched_ids.contains(&r.id) && workspace_matches(&window.workspace, r));
+        if let Some(matched) = match_hit {
+            matched_ids.insert(matched.id);
+            continue;
+        }
+
+        // Count-based cap: never spawn more than the per-app deficit.
+        let saved_total = saved_count.get(app_id).copied().unwrap_or(0);
+        let running_total = running_of_app.len();
+        let spawned_so_far = spawned_count.get(app_id).copied().unwrap_or(0);
+        let deficit = saved_total
+            .saturating_sub(running_total)
+            .saturating_sub(spawned_so_far);
+        if deficit == 0 {
+            continue;
+        }
+
+        spawned_count.insert(app_id, spawned_so_far.saturating_add(1));
+        to_spawn.push(window.clone());
+    }
+
+    to_spawn
+}
+
+/// Caps concurrent window spawns globally (niri IPC rate limit) and
+/// serializes spawns of the same app so two instances of one app cannot
+/// claim each other's new windows and land on swapped workspaces.
+#[derive(Clone)]
+struct SpawnLimiter {
+    global: Arc<Semaphore>,
+    per_app: Arc<Mutex<HashMap<String, Arc<Semaphore>>>>,
+}
+
+impl SpawnLimiter {
+    fn new(max_global_concurrency: usize) -> Self {
+        Self {
+            global: Arc::new(Semaphore::new(max_global_concurrency)),
+            per_app: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    async fn acquire(
+        &self,
+        app_id: &str,
+    ) -> Result<(OwnedSemaphorePermit, OwnedSemaphorePermit)> {
+        let app_semaphore = {
+            let mut per_app = self
+                .per_app
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            Arc::clone(
+                per_app
+                    .entry(app_id.to_string())
+                    .or_insert_with(|| Arc::new(Semaphore::new(1))),
+            )
+        };
+        let app_permit = app_semaphore
+            .acquire_owned()
+            .await
+            .map_err(|_| anyhow::anyhow!("per-app spawn semaphore for '{app_id}' closed"))?;
+        let global_permit = Arc::clone(&self.global)
+            .acquire_owned()
+            .await
+            .map_err(|_| anyhow::anyhow!("global spawn semaphore closed"))?;
+        Ok((app_permit, global_permit))
+    }
+}
+
+async fn restore_session_internal(
+    file_path: &Path,
+    config: &Config,
+    app_config: &AppConfig,
+) -> Result<RestoreOutcome> {
+    let Some(saved_windows) = load_session_windows(file_path)? else {
+        if config.dry_run {
+            info!(
+                "DRY RUN: no usable session at {} — a real run would build a new session file",
+                file_path.display()
+            );
+            return Ok(RestoreOutcome::SeededNewSession);
+        }
+        info!("Building new session file");
+        save_session_with_terminal_state(file_path, app_config).await?;
+        return Ok(RestoreOutcome::SeededNewSession);
+    };
+
+    let prepared = prepare_saved_windows(saved_windows, config, &app_config.terminal_state);
+    if prepared.is_empty() {
+        return Ok(RestoreOutcome::NothingToRestore);
     }
 
     if config.dry_run {
-        info!(
-            "DRY RUN: {} windows would be restored:",
-            saved_windows.len()
-        );
-        for w in &saved_windows {
+        info!("DRY RUN: {} windows would be restored:", prepared.len());
+        for w in &prepared {
             let ws_name = w.workspace.name.clone().unwrap_or_else(|| {
                 w.workspace
                     .idx
@@ -794,146 +985,232 @@ async fn restore_session_internal(
             let cmd = build_spawn_command(&w.app_id, w, &app_config.app_mappings);
             info!("  {} -> workspace [{}]: {:?}", w.app_id, ws_name, cmd);
         }
-        return Ok(());
+        return Ok(RestoreOutcome::WouldRestore {
+            window_count: prepared.len(),
+        });
     }
 
-    let current_windows = get_niri_windows().await?;
-    let claimed_window_ids: Arc<Mutex<HashSet<u64>>> =
-        Arc::new(Mutex::new(current_windows.iter().map(|w| w.id).collect()));
-    let mut handles = Vec::new();
+    let running = snapshot_running_windows().await?;
+    let to_spawn = plan_spawns(&prepared, &running, config, app_config);
+    if to_spawn.len() < prepared.len() {
+        info!(
+            "{} window(s) already running — idempotent restore spawns only the remaining {}",
+            prepared.len().saturating_sub(to_spawn.len()),
+            to_spawn.len()
+        );
+    }
+    if to_spawn.is_empty() {
+        return Ok(RestoreOutcome::Restored { spawned: 0 });
+    }
 
-    let mut spawned_apps = HashSet::new();
+    let spawned = spawn_windows(to_spawn, &running, config, app_config).await?;
+    Ok(RestoreOutcome::Restored { spawned })
+}
 
-    let semaphore = Arc::new(Semaphore::new(MAX_SPAWN_CONCURRENCY));
+/// Spawns the planned windows (concurrency-limited) and returns how many
+/// were confirmed visible in niri.
+async fn spawn_windows(
+    to_spawn: Vec<SavedWindow>,
+    running: &[RunningWindow],
+    config: &Config,
+    app_config: &AppConfig,
+) -> Result<usize> {
+    let claimed: Arc<Mutex<HashSet<u64>>> =
+        Arc::new(Mutex::new(running.iter().map(|w| w.id).collect()));
+    let workspaces = get_niri_workspaces().await?;
+    let limiter = SpawnLimiter::new(MAX_SPAWN_CONCURRENCY);
 
-    for saved_window in saved_windows {
-        let app_id = saved_window.app_id.clone();
-
-        if app_config.skip_apps.apps.contains(&app_id) {
-            info!("Skipping app: {}", app_id);
-            continue;
-        }
-
-        let should_skip = current_windows
-            .iter()
-            .any(|w| w.app_id == Some(app_id.clone()))
-            || spawned_apps.contains(&app_id);
-
-        let workspace = saved_window.workspace.clone();
-
-        if app_config.single_instance.apps.contains(&app_id) && should_skip {
-            info!("Skipping single-instance app: {}", app_id);
-            continue;
-        }
-
-        if app_config.single_instance.apps.contains(&app_id) {
-            spawned_apps.insert(app_id.clone());
-        }
-
-        let command = build_spawn_command(&app_id, &saved_window, &app_config.app_mappings);
-
+    let mut handles: Vec<JoinHandle<Result<usize>>> = Vec::new();
+    for saved_window in to_spawn {
+        let command =
+            build_spawn_command(&saved_window.app_id, &saved_window, &app_config.app_mappings);
+        let limiter = limiter.clone();
+        let claimed = Arc::clone(&claimed);
+        let workspaces = workspaces.clone();
         let spawn_timeout = config.spawn_timeout;
-        let claimed_window_ids = Arc::clone(&claimed_window_ids);
-        let permit = semaphore.clone().acquire_owned().await.unwrap();
-        let handle = spawn(async move {
-            let _permit = permit;
-            let mut spawn_socket =
-                Socket::connect().context("Failed to connect to Niri IPC socket")?;
-            let reply = spawn_socket
-                .send(Request::Action(Action::Spawn {
-                    command: command.clone(),
-                }))
-                .context("Failed to send spawn request")?;
+        handles.push(spawn(async move {
+            let _permits = limiter.acquire(&saved_window.app_id).await?;
+            spawn_single_window(
+                &saved_window,
+                &command,
+                spawn_timeout,
+                &claimed,
+                &workspaces,
+            )
+            .await
+        }));
+    }
 
-            if matches!(reply, Reply::Ok(Response::Handled)) {
-                for _ in 0..spawn_timeout * 2 {
-                    sleep(Duration::from_millis(500)).await;
-                    let new_windows = get_niri_windows().await?;
-                    let win_id = {
-                        let mut claimed = claimed_window_ids.lock().unwrap();
-                        new_windows
-                            .iter()
-                            .find(|w| w.app_id == Some(app_id.clone()) && !claimed.contains(&w.id))
-                            .map(|w| {
-                                claimed.insert(w.id);
-                                w.id
-                            })
-                    };
-                    if let Some(win_id) = win_id {
-                        let mut move_socket =
-                            Socket::connect().context("Failed to connect to Niri IPC socket")?;
+    let mut spawned = 0usize;
+    for handle in handles {
+        let confirmed = handle
+            .await
+            .context("Window spawn task panicked")?
+            .unwrap_or_else(|e| {
+                warn!("Window spawn failed: {e}");
+                0
+            });
+        spawned = spawned.saturating_add(confirmed);
+    }
+    Ok(spawned)
+}
 
-                        if let Some(output) = &workspace.output {
-                            let result =
-                                move_socket.send(Request::Action(Action::MoveWindowToMonitor {
-                                    id: Some(win_id),
-                                    output: output.clone(),
-                                }));
-                            if let Err(e) = &result {
-                                warn!(
-                                    "Warning: failed to move window {} to monitor {}: {:?}",
-                                    win_id, output, e
-                                );
-                            }
-                        }
+/// Spawns one window and waits for it to appear, then applies placement and
+/// focus. Returns 1 if the window was confirmed visible, 0 otherwise.
+async fn spawn_single_window(
+    saved_window: &SavedWindow,
+    command: &[String],
+    spawn_timeout: u64,
+    claimed: &Mutex<HashSet<u64>>,
+    workspaces: &[Workspace],
+) -> Result<usize> {
+    let mut spawn_socket = Socket::connect().context("Failed to connect to Niri IPC socket")?;
+    let reply = spawn_socket
+        .send(Request::Action(Action::Spawn {
+            command: command.to_vec(),
+        }))
+        .context("Failed to send spawn request")?;
 
-                        let workspace_reference = if let Some(reference) = workspace
-                            .name
-                            .as_ref()
-                            .filter(|n| !n.is_empty())
-                            .cloned()
-                            .map(WorkspaceReferenceArg::Name)
-                            .or_else(|| {
-                                workspace
-                                    .idx
-                                    .filter(|i| *i > 0)
-                                    .map(WorkspaceReferenceArg::Index)
-                            }) {
-                            Some(reference)
-                        } else {
-                            info!(
-                                    "Window {} has no saved workspace; leaving it on the active workspace",
-                                    win_id
-                                );
-                            None
-                        };
+    if !matches!(reply, Reply::Ok(Response::Handled)) {
+        warn!(
+            "Failed to spawn app: {} using command: {:?}",
+            saved_window.app_id, command
+        );
+        return Ok(0);
+    }
 
-                        if let Some(reference) = workspace_reference {
-                            if let Err(e) =
-                                move_socket.send(Request::Action(Action::MoveWindowToWorkspace {
-                                    window_id: Some(win_id),
-                                    reference,
-                                    focus: false,
-                                }))
-                            {
-                                warn!(
-                                    "Warning: failed to move window {} to workspace: {:?}",
-                                    win_id, e
-                                );
-                            }
-                        }
-                        break;
-                    }
-                }
-            } else {
-                warn!(
-                    "Failed to spawn app: {} using command: {:?}",
-                    app_id, command
-                );
+    let Some(win_id) = wait_for_new_window(saved_window, spawn_timeout, claimed).await else {
+        warn!(
+            "Window for app {} did not appear within {}s (spawn timeout)",
+            saved_window.app_id, spawn_timeout
+        );
+        return Ok(0);
+    };
+
+    apply_window_placement(win_id, saved_window, workspaces).await;
+
+    if saved_window.is_focused {
+        focus_window(win_id, &saved_window.app_id).await;
+    }
+
+    Ok(1)
+}
+
+/// Polls niri for a newly-opened window of the saved app that no other spawn
+/// task has claimed yet. `None` when nothing appeared within the timeout.
+async fn wait_for_new_window(
+    saved_window: &SavedWindow,
+    spawn_timeout: u64,
+    claimed: &Mutex<HashSet<u64>>,
+) -> Option<u64> {
+    let polls = spawn_timeout.saturating_mul(2);
+    for _ in 0..polls {
+        sleep(Duration::from_millis(500)).await;
+        let new_windows = get_niri_windows().await.ok()?;
+        let win_id = {
+            let mut claimed = claimed
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            new_windows
+                .iter()
+                .find(|w| w.app_id == Some(saved_window.app_id.clone()) && !claimed.contains(&w.id))
+                .map(|w| {
+                    claimed.insert(w.id);
+                    w.id
+                })
+        };
+        if let Some(win_id) = win_id {
+            return Some(win_id);
+        }
+    }
+    None
+}
+
+/// Best-effort placement: pin to the saved output if it still exists (with a
+/// workspace-based fallback), move to the saved workspace, never steal focus
+/// with the move itself.
+async fn apply_window_placement(win_id: u64, saved_window: &SavedWindow, workspaces: &[Workspace]) {
+    if let Some(output) = resolve_target_output(&saved_window.workspace, workspaces) {
+        let connect = Socket::connect().context("Failed to connect to Niri IPC socket");
+        if let Ok(mut move_socket) = connect {
+            let result = move_socket.send(Request::Action(Action::MoveWindowToMonitor {
+                id: Some(win_id),
+                output,
+            }));
+            if let Err(e) = &result {
+                warn!("Warning: failed to move window {win_id} to monitor: {e:?}");
             }
+        }
+    }
 
-            Result::<()>::Ok(())
+    let workspace_reference = saved_window
+        .workspace
+        .name
+        .as_ref()
+        .filter(|n| !n.is_empty())
+        .cloned()
+        .map(WorkspaceReferenceArg::Name)
+        .or_else(|| {
+            saved_window
+                .workspace
+                .idx
+                .filter(|i| *i > 0)
+                .map(WorkspaceReferenceArg::Index)
         });
 
-        handles.push(handle);
+    match workspace_reference {
+        Some(reference) => {
+            let connect = Socket::connect().context("Failed to connect to Niri IPC socket");
+            if let Ok(mut move_socket) = connect {
+                if let Err(e) = move_socket.send(Request::Action(Action::MoveWindowToWorkspace {
+                    window_id: Some(win_id),
+                    reference,
+                    focus: false,
+                })) {
+                    warn!("Warning: failed to move window {win_id} to workspace: {e:?}");
+                }
+            }
+        }
+        None => {
+            info!("Window {win_id} has no saved workspace; leaving it on the active workspace");
+        }
+    }
+}
+
+/// Picks the output to pin a window to: the saved output if it still exists,
+/// otherwise the output that currently hosts a workspace with the saved name
+/// (or index). Monitors get renamed or reordered between boots; the saved
+/// workspace survives on *some* output. (True position/EDID matching is not
+/// possible today: niri's IPC does not expose output positions.)
+fn resolve_target_output(saved: &WorkspaceInfo, workspaces: &[Workspace]) -> Option<String> {
+    let saved_output = saved.output.as_deref().filter(|o| !o.is_empty());
+    if let Some(out) = saved_output {
+        let output_exists = workspaces.iter().any(|w| w.output.as_deref() == Some(out));
+        if output_exists {
+            return Some(out.to_string());
+        }
+        warn!(
+            "Saved output '{out}' no longer exists; falling back to the output hosting the saved workspace"
+        );
     }
 
-    for handle in handles {
-        handle.await.context("Task execution failed")??;
-    }
+    let by_name = saved
+        .name
+        .as_deref()
+        .filter(|n| !n.is_empty())
+        .and_then(|n| workspaces.iter().find(|w| w.name.as_deref() == Some(n)));
+    let by_idx = saved
+        .idx
+        .and_then(|i| workspaces.iter().find(|w| w.idx == i));
+    by_name.or(by_idx).and_then(|w| w.output.clone())
+}
 
-    info!("Session restored.");
-    Ok(())
+/// Restores focus to the saved focused window, best-effort.
+async fn focus_window(win_id: u64, app_id: &str) {
+    match niri_send(Request::Action(Action::FocusWindow { id: win_id })).await {
+        Ok(_) => info!("Restored focus to window {win_id} of app {app_id}"),
+        Err(e) => warn!("Warning: failed to focus window {win_id}: {e}"),
+    }
 }
 
 async fn handle_shutdown_signals() {
