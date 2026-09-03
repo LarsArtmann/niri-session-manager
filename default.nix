@@ -1,6 +1,6 @@
 { buildRustPackage, lib }:
 buildRustPackage (
-  finalAttrs:
+  _finalAttrs:
   let
     cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
   in

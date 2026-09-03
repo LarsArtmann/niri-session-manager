@@ -5,6 +5,7 @@ A session manager for the Niri Wayland compositor that automatically saves and r
 ## Features
 
 ### Core
+
 - **Periodic session saving** with configurable interval and atomic writes
 - **Automatic session restoration** on startup with retry logic
 - **Backup management** with configurable retention
@@ -14,6 +15,7 @@ A session manager for the Niri Wayland compositor that automatically saves and r
 - **Dry-run mode** — preview what would be restored without spawning anything
 
 ### Reliability
+
 - **Atomic session writes** (temp + fsync + rename) prevent corruption on crash
 - **Non-fatal restore** — if niri IPC isn't ready yet, logs the error and continues instead of crash-looping
 - **Config validation** at startup with clear error messages
@@ -34,6 +36,7 @@ niri-session-manager [OPTIONS]
 ```
 
 ### CLI Options
+
 ```
 --save-interval <MINUTES>     How often to save the session (default: 15)
 --max-backup-count <COUNT>    Number of backup files to keep (default: 5)
@@ -100,6 +103,7 @@ kitty --directory /home/user/projects sh -c "'btop'; exec $SHELL"
 ```
 
 Terminal-specific flags are handled automatically:
+
 - **kitty**: `--directory`, positional command
 - **foot**: `--working-directory`, positional command
 - **wezterm**: `start --cwd ... -- sh -c ...`
@@ -135,6 +139,7 @@ This feature is Linux-only.
 ```
 
 The systemd user service is automatically configured to:
+
 - Start after `niri.service` and `graphical-session.target`
 - Restart with 2s delay and rate limiting (5 bursts per 60s)
 - Use OOM score adjustment to avoid being killed first under memory pressure

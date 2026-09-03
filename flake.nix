@@ -21,7 +21,7 @@
       treefmtEval = forAllSystems (
         pkgs:
         treefmt-nix.lib.evalModule pkgs (
-          { pkgs, ... }:
+          _:
           {
             programs = {
               nixfmt-rfc-style.enable = true;
@@ -60,7 +60,7 @@
         default = import ./shell.nix { inherit pkgs; };
       });
 
-      overlays.niri-session-manager = final: prev: {
+      overlays.niri-session-manager = _final: prev: {
         inherit (self.packages.${prev.hostPlatform.system}) niri-session-manager;
       };
     };

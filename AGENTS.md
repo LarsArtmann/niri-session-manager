@@ -40,7 +40,7 @@ Deliberately two files — do not split further without strong reason:
 - **All session-file writes go through `atomic_write`.** Plain `fs::write` corrupted sessions on crash.
 - **Restore completes before periodic save starts.** Concurrent save during restore snapshots partial state.
 - **Restore failure is non-fatal.** Errors are logged, never returned from `main` — under `Restart=always`, a failing restore crash-loops the service.
-- **Boot-scoped restore gate**: `boot_id` (`/proc/sys/kernel/random/boot_id`) + `restore-marker` file beside `session.json` ensures one restore per boot. `--retry-attempts` retries *within* that single restore, not across restarts.
+- **Boot-scoped restore gate**: `boot_id` (`/proc/sys/kernel/random/boot_id`) + `restore-marker` file beside `session.json` ensures one restore per boot. `--retry-attempts` retries _within_ that single restore, not across restarts.
 - **Zero-valued CLI args are rejected at startup** (`save_interval=0` once caused a tight spin loop; `retry_attempts=0` silently did nothing).
 
 ### Session format compatibility

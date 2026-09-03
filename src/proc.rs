@@ -115,15 +115,12 @@ fn resolve_child_process_at(
             .find(|&c| tpgid > 0 && c == tpgid)
             .unwrap_or(children[0]);
 
-        let comm = match read_comm_at(base, next_pid) {
-            Some(c) => c,
-            None => {
-                warn!(
-                    "[proc] could not read comm for PID {} (child of {})",
-                    next_pid, current
-                );
-                return None;
-            }
+        let comm = if let Some(c) = read_comm_at(base, next_pid) { c } else {
+            warn!(
+                "[proc] could not read comm for PID {} (child of {})",
+                next_pid, current
+            );
+            return None;
         };
 
         if is_shell(&comm, shell_names) || is_helper(&comm, helper_names) {
@@ -193,7 +190,7 @@ mod tests {
     }
 
     fn write_comm(dir: &Path, name: &str) {
-        fs::write(dir.join("comm"), format!("{}\n", name)).unwrap();
+        fs::write(dir.join("comm"), format!("{name}\n")).unwrap();
     }
 
     fn write_children(dir: &Path, pids: &[u32]) {
@@ -201,7 +198,7 @@ mod tests {
             .join("task")
             .join(dir.file_name().unwrap())
             .join("children");
-        let content: String = pids.iter().map(|p| format!("{} ", p)).collect();
+        let content: String = pids.iter().map(|p| format!("{p} ")).collect();
         fs::write(children_path, content.trim()).unwrap();
     }
 

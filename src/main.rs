@@ -79,8 +79,7 @@ fn get_restore_marker_path(session_file: &Path) -> std::path::PathBuf {
 fn already_restored_this_boot(boot_id: &Option<String>, marker_path: &Path) -> bool {
     match boot_id {
         Some(id) => fs::read_to_string(marker_path)
-            .map(|contents| contents.trim() == id.as_str())
-            .unwrap_or(false),
+            .is_ok_and(|contents| contents.trim() == id.as_str()),
         None => false,
     }
 }
@@ -131,8 +130,8 @@ enum ChildCommand {
 impl ChildCommand {
     fn to_args(&self) -> Vec<String> {
         match self {
-            ChildCommand::Args(args) => args.clone(),
-            ChildCommand::Legacy(s) => s.split_whitespace().map(String::from).collect(),
+            Self::Args(args) => args.clone(),
+            Self::Legacy(s) => s.split_whitespace().map(String::from).collect(),
         }
     }
 }
@@ -162,13 +161,13 @@ enum SessionData {
 impl SessionData {
     fn into_windows(self) -> Vec<SavedWindow> {
         match self {
-            SessionData::Versioned(v) => v.windows,
-            SessionData::Legacy(windows) => windows,
+            Self::Versioned(v) => v.windows,
+            Self::Legacy(windows) => windows,
         }
     }
 
-    fn is_legacy(&self) -> bool {
-        matches!(self, SessionData::Legacy(_))
+    const fn is_legacy(&self) -> bool {
+        matches!(self, Self::Legacy(_))
     }
 }
 
@@ -176,7 +175,7 @@ async fn restore_session(file_path: &Path, config: &Config, app_config: &AppConf
     let max_attempts = config.retry_attempts.max(1);
     for attempt in 1..=max_attempts {
         match restore_session_internal(file_path, config, app_config).await {
-            Ok(_) => return Ok(()),
+            Ok(()) => return Ok(()),
             Err(e) if attempt < max_attempts => {
                 warn!(
                     "Attempt {} failed: {}. Retrying in {} seconds...",
@@ -190,7 +189,7 @@ async fn restore_session(file_path: &Path, config: &Config, app_config: &AppConf
     unreachable!("retry loop exhausts via Err(e) return on final attempt")
 }
 
-fn default_enabled() -> bool {
+const fn default_enabled() -> bool {
     true
 }
 fn default_terminal_app_ids() -> Vec<String> {
@@ -220,7 +219,7 @@ fn default_shell_names() -> Vec<String> {
 fn default_helper_names() -> Vec<String> {
     vec!["kitten".into()]
 }
-fn default_max_walk_depth() -> u32 {
+const fn default_max_walk_depth() -> u32 {
     20
 }
 
@@ -406,11 +405,11 @@ impl TerminalProfile {
             .unwrap_or(Self::Generic)
     }
 
-    fn needs_start_subcommand(&self) -> bool {
+    const fn needs_start_subcommand(&self) -> bool {
         matches!(self, Self::Wezterm)
     }
 
-    fn cwd_flag(&self) -> CwdFlag {
+    const fn cwd_flag(&self) -> CwdFlag {
         match self {
             Self::Kitty => CwdFlag::Separated("--directory"),
             Self::Foot => CwdFlag::Separated("--working-directory"),
@@ -420,7 +419,7 @@ impl TerminalProfile {
         }
     }
 
-    fn cmd_flag(&self) -> Option<&'static str> {
+    const fn cmd_flag(&self) -> Option<&'static str> {
         match self {
             Self::Kitty | Self::Foot => None,
             Self::Wezterm => Some("--"),
@@ -452,7 +451,7 @@ fn build_terminal_restore_command(
                 cmd.push(cwd.clone());
             }
             CwdFlag::Joined(flag) => {
-                cmd.push(format!("{}{}", flag, cwd));
+                cmd.push(format!("{flag}{cwd}"));
             }
         }
     }
@@ -662,16 +661,13 @@ async fn restore_session_internal(
                 file_path.display(),
                 e
             );
-            match find_latest_valid_backup(file_path) {
-                Some((backup_path, backup_data)) => {
-                    info!("Recovered session from backup: {}", backup_path.display());
-                    backup_data
-                }
-                None => {
-                    warn!("No valid backup found. Starting with empty session.");
-                    save_session_with_terminal_state(file_path, app_config).await?;
-                    return Ok(());
-                }
+            if let Some((backup_path, backup_data)) = find_latest_valid_backup(file_path) {
+                info!("Recovered session from backup: {}", backup_path.display());
+                backup_data
+            } else {
+                warn!("No valid backup found. Starting with empty session.");
+                save_session_with_terminal_state(file_path, app_config).await?;
+                return Ok(());
             }
         }
     };
@@ -725,9 +721,7 @@ async fn restore_session_internal(
         for w in &saved_windows {
             let ws_name = w.workspace.name.clone().unwrap_or_else(|| {
                 w.workspace
-                    .idx
-                    .map(|i| i.to_string())
-                    .unwrap_or_else(|| "?".to_string())
+                    .idx.map_or_else(|| "?".to_string(), |i| i.to_string())
             });
             let cmd = build_spawn_command(&w.app_id, w, &app_config.app_mappings);
             info!("  {} -> workspace [{}]: {:?}", w.app_id, ws_name, cmd);
@@ -783,7 +777,7 @@ async fn restore_session_internal(
                 }))
                 .context("Failed to send spawn request")?;
 
-            if let Reply::Ok(Response::Handled) = reply {
+            if matches!(reply, Reply::Ok(Response::Handled)) {
                 for _ in 0..spawn_timeout * 2 {
                     sleep(Duration::from_millis(500)).await;
                     let new_windows = get_niri_windows().await?;
@@ -815,7 +809,7 @@ async fn restore_session_internal(
                             }
                         }
 
-                        let workspace_reference = match workspace
+                        let workspace_reference = if let Some(reference) = workspace
                             .name
                             .as_ref()
                             .filter(|n| !n.is_empty())
@@ -826,15 +820,12 @@ async fn restore_session_internal(
                                     .idx
                                     .filter(|i| *i > 0)
                                     .map(WorkspaceReferenceArg::Index)
-                            }) {
-                            Some(reference) => Some(reference),
-                            None => {
-                                info!(
-                                        "Window {} has no saved workspace; leaving it on the active workspace",
-                                        win_id
-                                    );
-                                None
-                            }
+                            }) { Some(reference) } else {
+                            info!(
+                                    "Window {} has no saved workspace; leaving it on the active workspace",
+                                    win_id
+                                );
+                            None
                         };
 
                         if let Some(reference) = workspace_reference {
@@ -959,7 +950,7 @@ fn find_latest_valid_backup(file_path: &Path) -> Option<(std::path::PathBuf, Ses
 
     let mut backups: Vec<_> = fs::read_dir(dir)
         .ok()?
-        .filter_map(|e| e.ok())
+        .filter_map(std::result::Result::ok)
         .filter(|e| e.path().extension().is_some_and(|ext| ext == "bak"))
         .collect();
 
@@ -988,14 +979,13 @@ fn find_latest_valid_backup(file_path: &Path) -> Option<(std::path::PathBuf, Ses
 
 fn cleanup_old_backups(session_dir: &Path, keep_count: usize) -> Result<()> {
     let mut backups: Vec<_> = fs::read_dir(session_dir)?
-        .filter_map(|entry| entry.ok())
+        .filter_map(std::result::Result::ok)
         .filter(|entry| {
             entry
                 .path()
                 .file_name()
                 .and_then(|n| n.to_str())
-                .map(|n| n.ends_with(".bak"))
-                .unwrap_or(false)
+                .is_some_and(|n| n.ends_with(".bak"))
         })
         .collect();
 
@@ -1354,7 +1344,7 @@ mod tests {
             &["kitty".to_string()],
             &profile,
             &["btop".to_string()],
-            &Some(home.clone()),
+            &Some(home),
         );
         assert_restore_command(&cmd, &["kitty", "sh", "-c"], "btop");
     }
@@ -1727,7 +1717,7 @@ mod tests {
 
         let backups: Vec<_> = fs::read_dir(tmp.path())
             .unwrap()
-            .filter_map(|e| e.ok())
+            .filter_map(std::result::Result::ok)
             .filter(|e| e.path().extension().is_some_and(|ext| ext == "bak"))
             .collect();
         assert!(
@@ -1746,7 +1736,7 @@ mod tests {
 
         let backups: Vec<_> = fs::read_dir(tmp.path())
             .unwrap()
-            .filter_map(|e| e.ok())
+            .filter_map(std::result::Result::ok)
             .filter(|e| e.path().extension().is_some_and(|ext| ext == "bak"))
             .collect();
         assert_eq!(backups.len(), 1, "valid session gets exactly one backup");

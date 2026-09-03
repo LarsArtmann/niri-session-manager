@@ -8,8 +8,8 @@
 ### 1. Restore correctness as a guarantee
 
 Today restore is best-effort: it runs once per boot, and a partial failure can
-duplicate windows on retry. The destination is a restore that is *idempotent by
-construction* — safe to re-run at any time — with placement that survives
+duplicate windows on retry. The destination is a restore that is _idempotent by
+construction_ — safe to re-run at any time — with placement that survives
 monitor changes.
 
 Raw ideas:
@@ -45,7 +45,7 @@ Raw ideas:
 - SSH suspend guard integration
 - journald log-volume review (per-window restore info lines)
 - DMS (DankMaterialShell) integration for session state display
-- Dry-run output designed for humans *and* for snapshot testing
+- Dry-run output designed for humans _and_ for snapshot testing
 
 ### 4. Supply chain and packaging
 
@@ -90,4 +90,4 @@ Things we are deliberately NOT pursuing and why:
 
 ---
 
-*Reconstructed 2026-09-03 from the archived status reports in `docs/status/archived/`.*
+_Reconstructed 2026-09-03 from the archived status reports in `docs/status/archived/`._
