@@ -110,7 +110,7 @@ fn should_restore_on_boot(boot_id: Option<&str>, marker_path: &Path) -> bool {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 struct WorkspaceInfo {
     #[serde(default, alias = "workspace_idx")]
     idx: Option<u8>,
@@ -130,7 +130,7 @@ impl WorkspaceInfo {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct SavedWindow {
     id: u64,
     app_id: String,
@@ -159,7 +159,7 @@ impl ChildCommand {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 struct TerminalState {
     child_command: Option<ChildCommand>,
     child_cwd: Option<String>,
@@ -2877,6 +2877,102 @@ max_walk_depth = 15
 
         let config = AppConfig::default();
         assert!(validate_app_config(&config).is_ok());
+    }
+
+    // --- M17: property tests (round-trips, legacy aliases, parse fuzzing) ---
+
+    use proptest::prelude::*;
+
+    fn arb_child_command() -> impl Strategy<Value = ChildCommand> {
+        prop::option::of(proptest::collection::vec("[a-zA-Z0-9_./ -]{1,20}", 0..4)).prop_map(
+            |maybe_args| match maybe_args {
+                Some(args) if !args.is_empty() => ChildCommand::Args(args),
+                _ => ChildCommand::Legacy("legacy-cmd".to_string()),
+            },
+        )
+    }
+
+    fn arb_terminal_state() -> impl Strategy<Value = TerminalState> {
+        (
+            prop::option::of(arb_child_command()),
+            prop::option::of("/[a-z/]{0,12}"),
+        )
+            .prop_map(|(child_command, child_cwd)| TerminalState {
+                child_command,
+                child_cwd,
+            })
+    }
+
+    fn arb_saved_window() -> impl Strategy<Value = SavedWindow> {
+        (
+            any::<u64>(),
+            "[a-z][a-z0-9.]{0,14}",
+            prop::option::of(0u8..=9),
+            prop::option::of("[a-z][a-z-]{0,7}"),
+            prop::option::of("[A-Z]{2,3}-[0-9]"),
+            any::<bool>(),
+            prop::option::of(any::<u32>()),
+            prop::option::of(arb_terminal_state()),
+        )
+            .prop_map(
+                |(id, app_id, idx, name, output, is_focused, pid, terminal_state)| SavedWindow {
+                    id,
+                    app_id,
+                    workspace: WorkspaceInfo { idx, name, output },
+                    is_focused,
+                    pid,
+                    terminal_state,
+                },
+            )
+    }
+
+    proptest! {
+        #[test]
+        fn saved_window_json_round_trip_is_identity(win in arb_saved_window()) {
+            let json = serde_json::to_string(&win).unwrap();
+            let parsed: SavedWindow = serde_json::from_str(&json).unwrap();
+            prop_assert_eq!(parsed, win);
+        }
+
+        #[test]
+        fn legacy_workspace_keys_deserialize_identically(win in arb_saved_window()) {
+            let mut value = serde_json::to_value(&win).unwrap();
+            if let Some(obj) = value.as_object_mut() {
+                for (old_key, new_key) in [
+                    ("idx", "workspace_idx"),
+                    ("name", "workspace_name"),
+                    ("output", "workspace_output"),
+                ] {
+                    if let Some(v) = obj.remove(new_key) {
+                        obj.insert(old_key.to_string(), v);
+                    }
+                }
+            }
+            let legacy: SavedWindow = serde_json::from_value(value).unwrap();
+            prop_assert_eq!(legacy, win);
+        }
+
+        #[test]
+        fn versioned_session_round_trip_is_identity(windows in proptest::collection::vec(arb_saved_window(), 0..20)) {
+            let session = VersionedSession {
+                version: SESSION_FORMAT_VERSION,
+                windows,
+            };
+            let json = serde_json::to_string(&session).unwrap();
+            let parsed: SessionData = serde_json::from_str(&json).unwrap();
+            assert!(!parsed.is_legacy());
+            prop_assert_eq!(parsed.into_windows(), session.windows);
+        }
+
+        #[test]
+        fn session_parse_never_panics_on_arbitrary_input(input in ".*") {
+            let _ = serde_json::from_str::<SessionData>(&input);
+        }
+
+        #[test]
+        fn app_config_parse_never_panics_on_arbitrary_input(input in ".*") {
+            let _ = toml::from_str::<AppConfig>(&input);
+        }
     }
 
     #[test]
