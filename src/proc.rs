@@ -63,7 +63,7 @@ fn read_stat_field_at(base: &Path, pid: u32, field: usize) -> Option<i64> {
     let data = fs::read_to_string(&path).ok()?;
 
     let comm_end = data.find(')')?;
-    let after_comm = &data[comm_end + 2..];
+    let after_comm = data.get(comm_end.saturating_add(2)..)?;
     let fields: Vec<&str> = after_comm.split_whitespace().collect();
 
     let idx = field.saturating_sub(3);
@@ -90,7 +90,7 @@ fn resolve_child_process_at(
         }
 
         let children = get_children_at(base, current);
-        let tpgid = read_stat_field_at(base, current, 8).unwrap_or(0) as u32;
+        let tpgid = u32::try_from(read_stat_field_at(base, current, 8).unwrap_or(0)).unwrap_or(0);
 
         if children.is_empty() {
             if tpgid > 0 {
@@ -113,11 +113,13 @@ fn resolve_child_process_at(
             .iter()
             .copied()
             .find(|&c| tpgid > 0 && c == tpgid)
-            .unwrap_or(children[0]);
+            .or_else(|| children.first().copied());
 
-        let comm = if let Some(c) = read_comm_at(base, next_pid) {
-            c
-        } else {
+        let Some(next_pid) = next_pid else {
+            return None;
+        };
+
+        let Some(comm) = read_comm_at(base, next_pid) else {
             warn!(
                 "[proc] could not read comm for PID {} (child of {})",
                 next_pid, current
