@@ -1610,6 +1610,16 @@ struct Config {
         conflicts_with = "dry_run"
     )]
     save_once: bool,
+
+    /// Check service health (niri reachable, session file, restore marker) and exit
+    #[arg(
+        long,
+        conflicts_with = "restore",
+        conflicts_with = "save_only",
+        conflicts_with = "save_once",
+        conflicts_with = "dry_run"
+    )]
+    health_check: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1622,6 +1632,8 @@ enum RunMode {
     SaveOnly,
     /// Save once, then exit.
     SaveOnce,
+    /// Check health, then exit.
+    HealthCheck,
 }
 
 impl Config {
@@ -1632,6 +1644,8 @@ impl Config {
             RunMode::SaveOnly
         } else if self.save_once {
             RunMode::SaveOnce
+        } else if self.health_check {
+            RunMode::HealthCheck
         } else {
             RunMode::Normal
         }
@@ -1656,6 +1670,53 @@ impl Config {
 }
 
 const FINAL_SAVE_TIMEOUT_SECS: u64 = 5;
+
+/// Reports service health to the log: niri reachability (+ version),
+/// boot-gate state, and the session file's contents and age. Fails when niri
+/// is unreachable — everything else is informational.
+async fn run_health_check(session_file: &Path) -> Result<()> {
+    let version = match niri_send(Request::Version).await {
+        Ok(Response::Version(v)) => v,
+        Ok(_) => anyhow::bail!("niri replied, but not with its version"),
+        Err(e) => anyhow::bail!("niri IPC unreachable: {e}"),
+    };
+    info!("niri IPC reachable (version {version})");
+
+    let marker_path = get_restore_marker_path(session_file);
+    let boot_id = get_boot_id();
+    if should_restore_on_boot(boot_id.as_deref(), &marker_path) {
+        info!(
+            "restore marker: this boot has not been restored yet (or marker is absent/stale)"
+        );
+    } else {
+        info!("restore marker: this boot was already restored");
+    }
+
+    match load_session_windows(session_file)? {
+        Some(windows) => {
+            let age = fs::metadata(session_file)
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|m| m.elapsed().ok())
+                .map(|d| {
+                    format!(
+                        "{}m{}s ago",
+                        d.as_secs() / 60,
+                        d.as_secs() % 60
+                    )
+                })
+                .unwrap_or_else(|| "unknown age".to_string());
+            info!(
+                "session file: {} window(s), last written {age}",
+                windows.len()
+            );
+        }
+        None => info!("session file: none yet (a restore or save creates it)"),
+    }
+
+    info!("health check passed");
+    Ok(())
+}
 
 /// One-shot boot restore behind the boot-scoped marker gate. Writes the
 /// marker only after a successful non-dry-run restore.
@@ -1726,6 +1787,10 @@ async fn main() -> Result<()> {
     };
 
     match config.run_mode() {
+        RunMode::HealthCheck => {
+            run_health_check(&session_file_path).await?;
+            return Ok(());
+        }
         RunMode::SaveOnce => {
             info!("--save-once: saving current session, then exiting");
             save_session_with_backup(&session_file_path, &config, &app_config).await?;
@@ -2560,6 +2625,7 @@ max_walk_depth = 15
             restore: false,
             save_only: false,
             save_once: false,
+            health_check: false,
         }
     }
 

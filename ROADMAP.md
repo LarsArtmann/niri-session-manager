@@ -56,21 +56,27 @@ Raw ideas:
 - Cross-platform CI job (macOS build-only; proc module is linux-gated)
 - `nix flake check --all-systems` (aarch64)
 
-## Open Questions (maintainer decisions pending)
+## Open Questions
 
-1. **Release policy** — bump to 0.4.1 and cut a release now so SystemNix can
-   pin the 0.4.0 behavior fixes, or batch with the idempotent-restore work?
-   (from `2026-09-03` report G.1)
-2. **Idempotent restore semantics** — when N windows of an app are saved and M
-   are already running, spawn the first N−M saved entries, or match by
-   workspace first? (from `2026-09-03` report G.2)
-3. **Terminal ground truth** — which terminal emulators are actually used on
-   real hardware? Those profiles become must-not-regress; the rest get verified
-   against CLI docs only. (from `2026-09-03` report G.3)
-4. **`SESSION_FORMAT_VERSION` 3 → 4?** — serialized keys changed
-   (`workspace_idx`→`idx` etc.) while the version stayed 3. Old files still
-   load via `#[serde(alias)]`. Bumping is honest; keeping avoids churn.
-   (from `2026-07-03` report G)
+Resolved on 2026-09-03/04 during the Pareto execution (kept here for the
+record; rationale in the linked code):
+
+1. **Release policy — RESOLVED.** 0.4.1 was cut and pushed immediately so
+   SystemNix's flake pin received the 0.4.0 behavior fixes. Standing policy:
+   ship accumulated fixes as patch releases instead of batching them behind
+   feature work.
+2. **Idempotent restore semantics — RESOLVED.** Workspace-first matching
+   (name, then index) with a per-app count cap of `saved − running`;
+   single-instance apps keep the stronger "skip if any instance runs" rule.
+   Implemented in `plan_spawns` (`src/main.rs`) with 8 unit tests plus an
+   end-to-end re-restore test against the fake IPC server.
+3. **Terminal ground truth** — still open: which terminals run on real
+   hardware daily? Those profiles become must-not-regress; the rest get
+   verified against CLI docs only.
+4. **`SESSION_FORMAT_VERSION` 3 → 4 — RESOLVED.** Bumped to 4. The version is
+   descriptive, not enforced: files from versions 1–3 still load via
+   `#[serde(alias)]`; the bump marks the key-name change honestly.
+   See `docs/example-session.json` for the current shape.
 
 ## Non-goals
 
