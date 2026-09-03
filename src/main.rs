@@ -1789,20 +1789,27 @@ async fn run_health_check(session_file: &Path) -> Result<()> {
         info!("restore marker: this boot was already restored");
     }
 
-    match load_session_windows(session_file)? {
-        Some(windows) => {
-            let age = fs::metadata(session_file)
-                .and_then(|m| m.modified())
-                .ok()
-                .and_then(|m| m.elapsed().ok())
-                .map(|d| format!("{}m{}s ago", d.as_secs() / 60, d.as_secs() % 60))
-                .unwrap_or_else(|| "unknown age".to_string());
-            info!(
-                "session file: {} window(s), last written {age}",
-                windows.len()
+    if let Some(windows) = load_session_windows(session_file)? {
+        let age = fs::metadata(session_file)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|m| m.elapsed().ok())
+            .map_or_else(
+                || "unknown age".to_string(),
+                |d| {
+                    format!(
+                        "{}m{}s ago",
+                        d.as_secs().div_euclid(60),
+                        d.as_secs().rem_euclid(60)
+                    )
+                },
             );
-        }
-        None => info!("session file: none yet (a restore or save creates it)"),
+        info!(
+            "session file: {} window(s), last written {age}",
+            windows.len()
+        );
+    } else {
+        info!("session file: none yet (a restore or save creates it)");
     }
 
     info!("health check passed");
