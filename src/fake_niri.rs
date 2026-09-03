@@ -634,7 +634,7 @@ async fn health_check_fails_when_niri_is_unreachable() {
 
     // No NIRI_SOCKET: the check must fail loudly instead of pretending.
     // The lock prevents parallel tests from re-pointing the env at their fakes.
-    let _env = env_without_socket();
+    let _env = FakeNiri::env_without_socket();
     assert!(
         crate::run_health_check(&session).await.is_err(),
         "health check without niri must fail"

@@ -1620,6 +1620,19 @@ struct Config {
         conflicts_with = "dry_run"
     )]
     health_check: bool,
+
+    /// Copy session.json plus all backups into DIR (created if missing), then exit
+    #[arg(long, value_name = "DIR")]
+    export_to: Option<PathBuf>,
+
+    /// Validate and import session.json (plus backups) from DIR, backing up the
+    /// current session first, then exit
+    #[arg(
+        long,
+        value_name = "DIR",
+        conflicts_with = "export_to"
+    )]
+    import_from: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1670,6 +1683,95 @@ impl Config {
 }
 
 const FINAL_SAVE_TIMEOUT_SECS: u64 = 5;
+
+/// Copies the session file and every backup into `dest_dir` for safekeeping.
+fn run_export(session_file: &Path, dest_dir: &Path) -> Result<()> {
+    if !session_file.exists() {
+        bail!(
+            "nothing to export: no session file at {}",
+            session_file.display()
+        );
+    }
+    fs::create_dir_all(dest_dir)
+        .with_context(|| format!("Failed to create export directory {}", dest_dir.display()))?;
+    fs::copy(session_file, dest_dir.join("session.json"))
+        .context("Failed to export session file")?;
+
+    let mut backups = 0usize;
+    if let Some(src_dir) = session_file.parent() {
+        for entry in fs::read_dir(src_dir)
+            .with_context(|| format!("Failed to read {}", src_dir.display()))?
+        {
+            let Ok(entry) = entry else { continue };
+            let is_bak = entry
+                .path()
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("bak"));
+            if !is_bak {
+                continue;
+            }
+            let dest = dest_dir.join(
+                entry
+                    .file_name(),
+            );
+            if fs::copy(entry.path(), dest).is_ok() {
+                backups = backups.saturating_add(1);
+            }
+        }
+    }
+    info!(
+        "Exported session + {backups} backup(s) to {}",
+        dest_dir.display()
+    );
+    Ok(())
+}
+
+/// Validates a previously exported directory and installs its session file
+/// as the current one. Refuses invalid session data, and backs up whatever
+/// is currently on disk first.
+fn run_import(archive_dir: &Path, session_file: &Path) -> Result<()> {
+    let source = archive_dir.join("session.json");
+    let contents = fs::read_to_string(&source)
+        .with_context(|| format!("Failed to read exported session {}", source.display()))?;
+    let windows = serde_json::from_str::<SessionData>(&contents)
+        .with_context(|| {
+            format!(
+                "{} is not valid session data — refusing to import it over the live session",
+                source.display()
+            )
+        })?
+        .into_windows();
+    info!("Importing {} window(s) from {}", windows.len(), source.display());
+
+    create_backup(session_file)?;
+    atomic_write(session_file, &contents)?;
+
+    let mut backups = 0usize;
+    if let Some(dest_dir) = session_file.parent() {
+        for entry in fs::read_dir(archive_dir)
+            .with_context(|| format!("Failed to read {}", archive_dir.display()))?
+        {
+            let Ok(entry) = entry else { continue };
+            let path = entry.path();
+            let is_bak = path
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("bak"));
+            if !is_bak {
+                continue;
+            }
+            if let Some(name) = path.file_name() {
+                if fs::copy(&path, dest_dir.join(name)).is_ok() {
+                    backups = backups.saturating_add(1);
+                }
+            }
+        }
+    }
+    info!(
+        "Imported session from {} (plus {backups} backup(s))",
+        archive_dir.display()
+    );
+    Ok(())
+}
 
 /// Reports service health to the log: niri reachability (+ version),
 /// boot-gate state, and the session file's contents and age. Fails when niri
@@ -1785,6 +1887,15 @@ async fn main() -> Result<()> {
             AppConfig::default()
         }
     };
+
+    if let Some(dest) = &config.export_to {
+        run_export(&session_file_path, dest)?;
+        return Ok(());
+    }
+    if let Some(source) = &config.import_from {
+        run_import(source, &session_file_path)?;
+        return Ok(());
+    }
 
     match config.run_mode() {
         RunMode::HealthCheck => {
