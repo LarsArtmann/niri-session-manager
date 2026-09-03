@@ -1,0 +1,38 @@
+{
+  "version": 4,
+  "windows": [
+    {
+      "id": 3,
+      "app_id": "chromium",
+      "idx": 1,
+      "name": "dev",
+      "output": "DP-1",
+      "is_focused": false,
+      "pid": 4213,
+      "terminal_state": null
+    },
+    {
+      "id": 7,
+      "app_id": "kitty",
+      "idx": 2,
+      "name": "web",
+      "output": "eDP-1",
+      "is_focused": true,
+      "pid": 5521,
+      "terminal_state": {
+        "child_command": ["nvim", "/home/lars/projects/niri-session-manager"],
+        "child_cwd": "/home/lars/projects/niri-session-manager"
+      }
+    },
+    {
+      "id": 9,
+      "app_id": "zen",
+      "idx": 1,
+      "name": "dev",
+      "output": "DP-1",
+      "is_focused": false,
+      "pid": 8804,
+      "terminal_state": null
+    }
+  ]
+}
