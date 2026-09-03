@@ -665,7 +665,8 @@ fn filter_skipped_windows(windows: Vec<SavedWindow>, skip_apps: &[String]) -> Ve
         .collect()
 }
 
-async fn save_session_with_terminal_state(file_path: &Path, app_config: &AppConfig) -> Result<()> {
+/// Captures the current niri state into the serialized session JSON.
+async fn capture_session_json(app_config: &AppConfig) -> Result<String> {
     let windows = get_niri_windows().await?;
     let workspaces = get_niri_workspaces().await?;
     let terminal_config = &app_config.terminal_state;
@@ -745,9 +746,11 @@ async fn save_session_with_terminal_state(file_path: &Path, app_config: &AppConf
         version: SESSION_FORMAT_VERSION,
         windows: saved_windows,
     };
-    let json_data =
-        serde_json::to_string_pretty(&session).context("Failed to serialize window data")?;
+    serde_json::to_string_pretty(&session).context("Failed to serialize window data")
+}
 
+async fn save_session_with_terminal_state(file_path: &Path, app_config: &AppConfig) -> Result<()> {
+    let json_data = capture_session_json(app_config).await?;
     atomic_write(file_path, &json_data).context("Failed to write session file")?;
     info!("Session saved to {}", file_path.display());
     Ok(())
