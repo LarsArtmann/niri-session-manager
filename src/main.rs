@@ -1,5 +1,8 @@
 mod proc;
 
+#[cfg(test)]
+mod fake_niri;
+
 use anyhow::{bail, Context, Result};
 use chrono::{Local, SecondsFormat};
 use clap::Parser;
@@ -1571,6 +1574,7 @@ async fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::fake_niri::niri_workspace;
 
     fn expected_exec_suffix(child_cmd: &str) -> String {
         let shell = get_restore_shell();
@@ -2600,19 +2604,6 @@ max_walk_depth = 15
     }
 
     // --- M14: output fallback when the saved output no longer exists ---
-
-    fn niri_workspace(id: u64, idx: u8, name: Option<&str>, output: &str) -> Workspace {
-        Workspace {
-            id,
-            idx,
-            name: name.map(String::from),
-            output: Some(output.to_string()),
-            is_urgent: false,
-            is_active: false,
-            is_focused: false,
-            active_window_id: None,
-        }
-    }
 
     #[test]
     fn resolve_output_keeps_existing_saved_output() {
