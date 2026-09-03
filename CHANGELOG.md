@@ -5,6 +5,41 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Idempotent restore**: running windows are matched against saved entries by workspace first (name, then index) and the spawn list is capped at `saved − running` per app — re-running a restore resumes instead of duplicating; single-instance apps keep the skip rule (`plan_spawns`, 8 unit tests + end-to-end re-restore test)
+- **Reactive saving**: the daemon subscribes to niri's event stream and saves after layout activity settles (2s debounce); when the stream is unavailable it falls back to the configured interval until niri accepts a subscription again (`reactive_save_session`, replaces the blind 15-min poll)
+- **Focus restoration**: the saved focused window receives `Action::FocusWindow` after placement — `is_focused` was saved since v0.3.0 but never used
+- **Per-app spawn serialization** (`SpawnLimiter`): same-app spawns never overlap, eliminating the same-app workspace-swap race on top of the global 5-spawn cap
+- **Save throttling**: a capture byte-identical to the file on disk skips backup rotation and the write entirely
+- **Output fallback for multi-monitor**: a saved output that no longer exists falls back to the output hosting the saved workspace (name → index)
+- **Stale restore-marker pruning**: markers from previous boots are removed instead of accumulating forever
+- **Run modes**: `--restore` (restore then exit), `--save-only` (skip boot restore), `--save-once` (one save then exit; powers the suspend hook)
+- **`--health-check`**: reports niri reachability + version, boot-gate state, and session-file contents/age; fails loudly when niri is unreachable
+- **`--export <DIR>` / `--import <DIR>`**: safe session portability — import validates before replacing and backs up the current session first
+- **`--config-file <PATH>`**: app-config override (explicit path missing = error; default path missing = template created)
+- **NixOS module**: `maxRestoreWindows` option (6 of 7 tunables mirrored; `dryRun` stays CLI-only) and `saveOnSuspend` (default true) installing a `sleep.target` oneshot that runs `--save-once`
+- **Fake niri IPC test server** (`src/fake_niri.rs`): real Unix-socket protocol server with failure injection, spawn metering, and an event-stream mode; the IPC paths (restore, spawn ordering, placement, focus, retries, concurrency cap, health, shutdown final save, idempotency) are now integration-tested — 108 tests + 1 benchmark, up from 63
+- **Property tests** (proptest): session round-trip identity, legacy-key alias identity, and arbitrary-input parse fuzzing for session and config formats
+- `SESSION_FORMAT_VERSION = 4` (descriptive, not enforced — versions 1–3 still load via serde aliases); see `docs/example-session.json`
+
+### Changed
+
+- `niri_send` now runs the blocking socket round-trip inside `spawn_blocking` instead of blocking the async executor
+- Terminal CLI profiles (kitty, foot, wezterm, ghostty, alacritty) verified against official docs; `dedupe_single_instance_windows` tracks PIDs per app so two different single-instance apps sharing a PID no longer swallow each other's windows
+- `terminal_state.max_walk_depth = 0` is rejected at startup (was a silent no-op)
+
+### Fixed
+
+- All 39 pre-existing clippy (pedantic+nursery) errors after a toolchain drift; clippy is green again and enforced in CI
+- Broken `nix flake check`: the pinned treefmt-nix dropped the `programs.nixfmt-rfc-style` alias (plain `programs.nixfmt` is the RFC formatter now)
+- Rust sources were no longer rustfmt-clean; `cargo fmt` applied and enforced
+- Parent-directory fsync added to `atomic_write` — the rename now survives power loss, not just the file contents
+- Corrupt session with no valid backup no longer writes a new session file during `--dry-run`
+- `terminal_state` enabled with zero matched terminals now warns instead of silently saving nothing
+
 ## [0.4.1] - 2026-09-03
 
 Patch release so flake consumers (SystemNix) can pin and receive the `0.4.0`
