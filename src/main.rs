@@ -1998,9 +1998,9 @@ async fn shutdown_with_final_save(
                 SAVE_TASK_SHUTDOWN_GRACE.as_secs()
             );
             save_task.abort();
+            let _ = save_task.await;
         }
     }
-    let _ = save_task.await;
 
     info!("Saving final session before shutdown");
     let final_save = save_session_with_backup(session_file, config, app_config);

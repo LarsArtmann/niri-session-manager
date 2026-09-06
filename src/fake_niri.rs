@@ -325,8 +325,9 @@ fn handle_action(action: Action, state: &Arc<Mutex<FakeState>>) -> Reply {
                 st.max_in_flight = st.max_in_flight.max(st.in_flight);
                 let app_in_flight = st.app_in_flight.entry(app_id.clone()).or_insert(0);
                 *app_in_flight = app_in_flight.saturating_add(1);
+                let current = *app_in_flight;
                 let max_app = st.max_app_in_flight.entry(app_id.clone()).or_insert(0);
-                *max_app = (*max_app).max(*app_in_flight);
+                *max_app = (*max_app).max(current);
             }
             let delay = state
                 .lock()
@@ -987,14 +988,20 @@ async fn shutdown_signal_unblocks_the_parked_event_reader() {
         .expect("fake niri must accept the event stream");
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
-    let task = tokio::spawn(drive_event_driven_saves(
-        connection,
-        &session,
-        &config,
-        &app_config,
-        Duration::from_secs(SAVE_DEBOUNCE_SECS),
-        shutdown_rx,
-    ));
+    let task_session = session.clone();
+    let task_config = config.clone();
+    let task_app_config = app_config.clone();
+    let task = tokio::spawn(async move {
+        drive_event_driven_saves(
+            connection,
+            &task_session,
+            &task_config,
+            &task_app_config,
+            Duration::from_secs(SAVE_DEBOUNCE_SECS),
+            shutdown_rx,
+        )
+        .await
+    });
 
     // Let the blocking reader park on a socket read with no events flowing.
     tokio::time::sleep(Duration::from_millis(200)).await;
@@ -1015,7 +1022,7 @@ async fn shutdown_signal_unblocks_the_parked_event_reader() {
 
 // --- per-app spawn serialization (strict sequence, not just the global cap) ---
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn same_app_spawns_are_strictly_sequential_while_apps_overlap() {
     let niri = FakeNiri::start();
     let _env = niri.env();
