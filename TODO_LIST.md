@@ -17,29 +17,24 @@
 
 | Task                                                                                                                           | Status       | Impact | Effort | Evidence                                                                                  |
 | ------------------------------------------------------------------------------------------------------------------------------ | ------------ | ------ | ------ | ----------------------------------------------------------------------------------------- |
-| Cut release 0.5.0 (idempotent restore, reactive saves, focus, v4 format) and let SystemNix pin it                              | 🔵 `BLOCKED` | High   | Low    | `CHANGELOG.md` [Unreleased]; tag/push awaits maintainer go-ahead                          |
+| Cut release 0.5.0 (idempotent restore, reactive saves, graceful shutdown, backoff) and let SystemNix pin it                     | 🔵 `BLOCKED` | High   | Low    | `CHANGELOG.md` [Unreleased]; tag/push awaits maintainer go-ahead                          |
 | Soak-test reactive saves + idempotent restore on real hardware (daily driver) — the fake server cannot prove niri-event timing | 🔴 `TODO`    | High   | Low    | `reactive_save_session` in `src/main.rs`; all integration tests use `src/fake_niri.rs`    |
-| Make the reactive save loop's polling-fallback branch testable (injectable interval) and add a test                            | 🔴 `TODO`    | High   | Medium | fallback loop sleeps `config.save_interval` (min 1 = 60s); currently untestable under 60s |
 
 ## Medium Impact
 
 | Task                                                                                                                                         | Status       | Impact | Effort | Evidence                                                                                                                           |
 | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------ | ------ | ------ | ---------------------------------------------------------------------------------------------------------------------------------- |
-| Graceful shutdown for the event-stream reader: socket read timeout or join-with-timeout instead of leaving it blocked until connection close | 🔴 `TODO`    | Medium | Low    | `drive_event_driven_saves` (`src/main.rs`); aborted task leaves a `spawn_blocking` reader blocked — harmless today, sloppy forever |
-| Exponential backoff (capped) for event-stream reconnects instead of the fixed 1s                                                             | 🔴 `TODO`    | Medium | Low    | `reactive_save_session` reconnect `sleep(Duration::from_secs(1))`                                                                  |
 | Terminal ground truth (ROADMAP Q3): confirm which terminals run daily and give those profiles must-not-regress soak coverage                 | 🔵 `BLOCKED` | Medium | Low    | profiles doc-verified 2026-09-04; real-binary coverage pending maintainer input                                                    |
-| Consider splitting `src/main.rs` (~3400 lines) into modules (types / restore / save / cli) now that boundaries are clean                     | 🔴 `TODO`    | Medium | Medium | `AGENTS.md` documents the old two-file rule; the codebase outgrew it — needs a deliberate call                                     |
+| Move `spawn_single_window`'s blocking niri I/O off the async runtime (`spawn_blocking` or async client)                                      | 🔴 `TODO`    | Medium | Low    | `spawn_single_window` calls `Socket::send` inline; a current-thread runtime serializes all spawns behind it (hit in the new tests)  |
+| Split `src/main.rs` (~3600 lines) into modules (types / restore / save / cli) — deliberate call made 2026-09-06: yes, but as a dedicated behavior-frozen changeset, not mixed into behavioral work | 🔴 `TODO` | Medium | Medium | module boundaries verified during the shutdown/backoff rework; keep the split reviewable on its own                                 |
 
 ## Low Impact
 
 | Task                                                                                                | Status    | Impact | Effort | Evidence                                                                 |
 | --------------------------------------------------------------------------------------------------- | --------- | ------ | ------ | ------------------------------------------------------------------------ |
-| Same-app spawn ORDER assertion in the fake-IPC harness (strict sequence, distinct from non-overlap) | 🔴 `TODO` | Low    | Low    | `SpawnLimiter` serializes same-app spawns; order is currently untested   |
-| Harness test: window closed between restores → re-restore respawns exactly it on its workspace      | 🔴 `TODO` | Low    | Low    | fake server supports window removal via `set_windows`                    |
-| Harness test: `--save-only` skips boot restore end-to-end                                           | 🔴 `TODO` | Low    | Low    | `RunMode::SaveOnly` dispatch in `main`                                   |
-| Watch niri upstream for window-geometry IPC (prerequisite for window size capture)                  | 🔴 `TODO` | Low    | Low    | ROADMAP non-goal "window size capture"; re-evaluate on upstream releases |
-| CI: cache cargo builds to cut the ~2 min proptest-tree rebuild per run                              | 🔴 `TODO` | Low    | Low    | `.github/workflows/checks.yml`                                           |
+| Capture `WindowLayout` (window size / scroll position) in the session file — upstream prerequisite landed | 🔴 `TODO` | Low | Medium | niri-ipc `Window.layout` (geometry exposed upstream since v25.08; pinned crate 25.11 already carries it) — needs session-format v5 design |
+| Spawn-timeout exponential backoff in the restore retry loop                                         | 🔴 `TODO` | Low    | Low    | fixed `--retry-delay` between attempts today                              |
 
 ---
 
-_Verified 2026-09-04 against code at 108 passing tests (+1 ignored benchmark). The previous list's 31 items are all resolved — see `CHANGELOG.md` [Unreleased] and `FEATURES.md` for the evidence trail._
+_Verified 2026-09-06 against code at 114 passing tests (+1 ignored benchmark). Resolved this round (see `CHANGELOG.md` [Unreleased]): polling-fallback testability + test, graceful event-reader shutdown, capped reconnect backoff, same-app spawn sequencing test, window-closed re-restore test, `--save-only` end-to-end test, niri upstream geometry watch (landed), CI cargo caching. The previous list's remaining items are unchanged._

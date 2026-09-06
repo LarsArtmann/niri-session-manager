@@ -21,12 +21,14 @@ Raw ideas:
 - Output matching by EDID/position instead of name
   _Partially shipped: workspace-hosting output fallback. True position/EDID
   matching remains blocked — niri's IPC exposes no output positions._
-- Window size / column-width capture (blocked on niri IPC — evaluate upstream first)
+- Window size / column-width capture — upstream prerequisite landed: niri-ipc
+  exposes `Window.layout` (`WindowLayout`: tile/window size, scroll-layout
+  position) since v25.08, and our pinned crate (25.11) already carries it.
+  Verified against the resolved crate source 2026-09-06. Now needs a
+  session-format v5 design (see TODO_LIST).
 - Duplicate-window dedup on save (distinct from single-instance dedup)
 - Config hot-reload via file watching (inotify) — restart picks up changes today
 - Per-app restore delay tuning, `--migrate` session-file migration command
-- Graceful socket-timeout join for the event-stream reader
-- Capped exponential backoff for event-stream reconnects
 - Spawn-timeout exponential backoff
 - SSH suspend guard integration
 - journald log-volume review (per-window restore info lines)
@@ -101,6 +103,9 @@ Things we are deliberately NOT pursuing and why:
   niri releases.
 - **Window size capture ahead of upstream**: blocked by niri IPC (no layout
   geometry exposed); revisit when upstream exposes it.
+  _Superseded 2026-09-06: upstream exposed layout geometry (niri-ipc
+  `WindowLayout`, since v25.08) and the pinned crate already carries it — the
+  capture feature moved back to Ideas pending a session-format v5 design._
 - **Library-ification with structured error types** (`thiserror` at module
   boundaries): premature while the crate is a binary consumed via flake.
 - **Reactive saves before the event-stream foundation exists**: hot-reload and

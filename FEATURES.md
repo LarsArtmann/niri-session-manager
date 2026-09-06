@@ -22,7 +22,9 @@
 | Feature                                                  | Status                    | Notes                                                                                                              |
 | -------------------------------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------ |
 | Reactive saving via niri event stream                    | 🟢 `FULLY_FUNCTIONAL`     | `reactive_save_session`; layout events trigger debounced (2s) saves; tested end-to-end against the fake IPC server |
-| Interval fallback when the event stream is down          | 🟡 `PARTIALLY_FUNCTIONAL` | saves at the configured interval until niri accepts a subscription again; branch untested (interval-bound)         |
+| Interval fallback when the event stream is down          | 🟢 `FULLY_FUNCTIONAL`     | saves at the configured interval until niri accepts a subscription again (the accepted probe is used directly); refusal-injection tested with an injectable interval, including recovery  |
+| Graceful shutdown of the reactive save loop              | 🟢 `FULLY_FUNCTIONAL`     | watch signal + per-connection socket shutdown unblocks the parked reader; 5s grace with abort fallback; parked-reader test  |
+| Reconnect backoff for stream deaths                      | 🟢 `FULLY_FUNCTIONAL`     | 1s doubling to a 30s cap; healthy (≥5s) streams reset it; unit-tested sequence                                              |
 | Unchanged-save throttling                                | 🟢 `FULLY_FUNCTIONAL`     | byte-identical capture skips backup rotation and write; tested                                                     |
 | Atomic writes (temp + fsync + rename + parent-dir fsync) | 🟢 `FULLY_FUNCTIONAL`     | `atomic_write`; the rename survives power loss; tested                                                             |
 | Backup rotation with retention                           | 🟢 `FULLY_FUNCTIONAL`     | `create_backup`; skips corrupt files since 0.4.0; rotation tested (newest kept, oldest evicted)                    |

@@ -10,7 +10,7 @@ Context for AI sessions working on this repository.
 
 ```bash
 cargo build                      # build
-cargo test                       # full suite: unit + fake-IPC integration tests (108 + 1 ignored benchmark)
+cargo test                       # full suite: unit + fake-IPC integration tests (114 + 1 ignored benchmark)
 cargo clippy --all-features      # lint (CI runs this exact form; pedantic+nursery denies enforced)
 cargo fmt --all -- --check       # format check (CI enforces)
 nix build                        # build Nix package
@@ -36,14 +36,14 @@ cargo test restore_burst --release -- --ignored --nocapture   # benchmark (see d
 
 Three source files (the first two are the real code, the third is test infrastructure):
 
-- `src/main.rs` (~3400 lines): niri IPC, session model, idempotent restore planning, reactive save loop, config, backups, export/import, health check, CLI, unit tests.
+- `src/main.rs` (~3600 lines): niri IPC, session model, idempotent restore planning, reactive save loop, config, backups, export/import, health check, CLI, unit tests.
 - `src/proc.rs` (~435 lines): `/proc` process-tree walking for terminal state recovery. Linux-only code is gated with `#[cfg(target_os = "linux")]` with a portable no-op fallback for `resolve_child_process`. Everything takes an injectable `base: &Path` so tests can mount fake proc trees.
-- `src/fake_niri.rs` (~820 lines, `#[cfg(test)]` only): an in-process fake niri IPC server (real Unix socket, real protocol) — Windows/Workspaces/Version replies, Spawn/Move/Focus recording with failure injection and concurrency metering, plus an EventStream mode with queued events. Tests take the process-global `IPC_ENV_LOCK` via `FakeNiri::env()` because `Socket::connect()` reads `$NIRI_SOCKET` from the environment; `FakeNiri::close()` must be called before a test ends if it spawned the reactive save loop (tokio's runtime drop waits for `spawn_blocking` readers).
+- `src/fake_niri.rs` (~1160 lines, `#[cfg(test)]` only): an in-process fake niri IPC server (real Unix socket, real protocol) — Windows/Workspaces/Version replies, Spawn/Move/Focus recording with failure injection and concurrency metering (global AND per-app in-flight tracking), event-stream refusal injection (`refuse_event_streams`), plus an EventStream mode with queued events. Tests take the process-global `IPC_ENV_LOCK` via `FakeNiri::env()` because `Socket::connect()` reads `$NIRI_SOCKET` from the environment; `FakeNiri::close()` must be called before a test ends if it spawned the reactive save loop (tokio's runtime drop waits for `spawn_blocking` readers).
 
 ### Runtime flow
 
-1. `main`: parse/validate CLI → load `AppConfig` (TOML, cached — never re-read) → dispatch run mode: `--health-check` / `--export` / `--import` / `--save-once` exit after their one job; otherwise boot-gated restore (`run_boot_restore`) → `--dry-run`/`--restore` exit here → spawn `reactive_save_session` + await shutdown signal → `shutdown_with_final_save` (aborts the save task, one final save under a 5s timeout).
-2. **Save (reactive)**: subscribe to niri's event stream → layout-relevant events trigger a **debounced** (2s) save; if the stream is unavailable or dies, fall back to the configured interval until niri accepts a subscription again. A capture byte-identical to the file on disk skips backup rotation and the write entirely.
+1. `main`: parse/validate CLI → load `AppConfig` (TOML, cached — never re-read) → `run_service_loop` (mode dispatch extracted from `main` so the harness can drive it with an injected shutdown signal): `--health-check` / `--export` / `--import` / `--save-once` exit after their one job; otherwise boot-gated restore (`run_boot_restore`) → `--dry-run`/`--restore` exit here → spawn `reactive_save_session` + await shutdown signal → `shutdown_with_final_save` (sends the watch-based shutdown signal, waits ≤5s for a graceful stop, aborts as deadline fallback, then one final save under a 5s timeout).
+2. **Save (reactive)**: subscribe to niri's event stream → layout-relevant events trigger a **debounced** (2s) save; if the stream is unavailable or dies, fall back to the configured interval until niri accepts a subscription again (the accepted probe subscription is used directly, not discarded; the fallback interval is injectable via `run_reactive_save_session` for tests). Reconnects after stream death use a capped exponential backoff (1s doubling to 30s; a stream that stayed alive ≥5s resets it). Each event connection is an `EventConnection` owning the socket plus a `try_clone`d shutdown handle — the drive loop shuts the socket down on exit so the parked blocking reader unblocks (no leaked reader threads on shutdown). A capture byte-identical to the file on disk skips backup rotation and the write entirely.
 3. **Restore (idempotent)**: read session → on parse failure fall back to most recent valid `.bak` → prepare (sort, drop stateless terminals, warn on suspicious per-app counts, cap at `--max-restore-windows`) → snapshot running windows → `plan_spawns` **matches by workspace first (name, then index), then caps at `saved − running` per app** → spawn through `SpawnLimiter` (global cap 5, **per-app serialization**) → place (output fallback via workspace host, workspace move, focus restore for the saved focused window).
 4. **Boot gate**: `should_restore_on_boot` compares the marker to `boot_id` and **prunes stale markers from previous boots**; the marker is written only after a successful non-dry-run restore.
 
@@ -76,10 +76,12 @@ Three source files (the first two are the real code, the third is test infrastru
 
 ## Testing
 
-- 108 tests + 1 `#[ignore]`d benchmark. Unit tests live in-file; IPC integration tests live in `src/fake_niri.rs` against the fake server.
-- Never test against a live niri session; the fake server covers restore, save, shutdown, idempotency, focus, retries, concurrency, health, and the event stream (see `layout_event_triggers_debounced_save`).
+- 114 tests + 1 `#[ignore]`d benchmark. Unit tests live in-file; IPC integration tests live in `src/fake_niri.rs` against the fake server.
+- Never test against a live niri session; the fake server covers restore, save, shutdown (graceful + final save), idempotency, focus, retries, concurrency (global cap + per-app serialization), health, the event stream, the polling fallback with recovery, and `--save-only` end-to-end (see `layout_event_triggers_debounced_save`, `polling_fallback_saves_when_event_stream_refused_then_recovers`, `save_only_skips_boot_restore_and_runs_the_save_loop`).
 - Tests that touch `$NIRI_SOCKET` MUST hold `IPC_ENV_LOCK` (`FakeNiri::env()` / `FakeNiri::env_without_socket()`); parallel tests race on the environment otherwise.
-- The polling-fallback branch of `reactive_save_session` is untested (real 60s+ wait); known gap, listed in TODO_LIST.
+- `#[tokio::test]` defaults to a current_thread runtime; `spawn_single_window` blocks its worker on the synchronous IPC send, so tests that need real spawn overlap (concurrency metering) must use `#[tokio::test(flavor = "multi_thread", worker_threads = 2)]` — otherwise spawns serialize and overlap assertions go vacuous.
+- CI runs `cargo clippy --all-features` WITHOUT `--tests`: lint denies (unwrap_used etc.) apply to non-test code only, which is why harness tests may use `unwrap`/`expect`.
+- After timeout-joining a `JoinHandle` via `&mut`, do NOT await the owned handle again (double-poll panics: "JoinHandle polled after completion") — await only in the elapsed/abort arm.
 
 ## Docs map
 
@@ -89,7 +91,6 @@ Three source files (the first two are the real code, the third is test infrastru
 
 ## Known Issues (open, pre-existing or accepted)
 
-- The polling-fallback branch of the reactive save loop is untested (interval-bound).
-- `drive_event_driven_saves`: aborting the save task (shutdown) leaves the event reader blocked until the connection closes — harmless because the process exits, but a graceful socket-timeout join would be cleaner.
-- Event-stream reconnect uses a fixed 1s delay, not exponential backoff.
 - Terminal flag profiles are doc-verified but not exercised against real terminal binaries; daily-driver terminals deserve must-not-regress status (ROADMAP Q3 open).
+- If shutdown grace expires (save task wedged >5s), the abort path skips the event-connection cleanup, so the parked reader leaks until process exit — acceptable last-resort behavior, the graceful path is the norm.
+- `spawn_single_window` issues blocking `Socket` I/O on the async runtime (one worker per in-flight spawn); fine on the multi-thread production runtime, worth moving to `spawn_blocking` if spawn paths grow.
