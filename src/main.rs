@@ -12,7 +12,9 @@ use niri_ipc::{
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
-use std::io::Write;
+use std::io::{BufRead, BufReader, Write};
+use std::net::Shutdown;
+use std::os::unix::net::UnixStream;
 use std::time::UNIX_EPOCH;
 use std::{
     fs,
@@ -23,7 +25,7 @@ use tokio::{
     select,
     signal::unix::{signal, SignalKind},
     spawn,
-    sync::{OwnedSemaphorePermit, Semaphore},
+    sync::{watch, OwnedSemaphorePermit, Semaphore},
     task::{spawn_blocking, JoinHandle},
     time::sleep,
     time::Duration,
@@ -1308,6 +1310,28 @@ async fn handle_shutdown_signals() -> Result<()> {
 }
 
 const SAVE_DEBOUNCE_SECS: u64 = 2;
+/// Wait before the first reconnect attempt after a live event stream dies.
+const RECONNECT_DELAY_INITIAL: Duration = Duration::from_secs(1);
+/// Upper bound for the exponential reconnect backoff.
+const RECONNECT_DELAY_MAX: Duration = Duration::from_secs(60);
+/// How long shutdown waits for the reactive save task to stop gracefully
+/// before falling back to an abort.
+const SAVE_TASK_SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
+
+/// Doubles the reconnect delay, capped so a flapping niri cannot pin the save
+/// loop into a hot reconnect cycle.
+fn next_reconnect_delay(current: Duration) -> Duration {
+    current.saturating_mul(2).min(RECONNECT_DELAY_MAX)
+}
+
+/// Resolves once a graceful shutdown has been requested (immediately if it
+/// already was). A dropped sender also counts as a shutdown request.
+async fn shutdown_requested(shutdown: &mut watch::Receiver<bool>) {
+    if *shutdown.borrow_and_update() {
+        return;
+    }
+    let _ = shutdown.changed().await;
+}
 
 /// Whether a niri event can change what a session save would capture.
 const fn layout_relevant(event: &niri_ipc::Event) -> bool {
@@ -1333,70 +1357,162 @@ async fn reactive_save_session(
     file_path: std::path::PathBuf,
     config: Config,
     app_config: AppConfig,
+    shutdown: watch::Receiver<bool>,
 ) {
     let interval = Duration::from_secs(config.save_interval.max(1).saturating_mul(60));
+    run_reactive_save_session(file_path, config, app_config, interval, shutdown).await;
+}
+
+/// The save loop with an injectable fallback interval, so tests can exercise
+/// the polling-fallback branch without waiting out the configured minutes.
+async fn run_reactive_save_session(
+    file_path: std::path::PathBuf,
+    config: Config,
+    app_config: AppConfig,
+    fallback_interval: Duration,
+    mut shutdown: watch::Receiver<bool>,
+) {
     let debounce = Duration::from_secs(SAVE_DEBOUNCE_SECS);
+    let mut reconnect_delay = RECONNECT_DELAY_INITIAL;
     info!(
         "Starting reactive save task (niri event stream, debounce {}s, fallback interval {} min)",
         SAVE_DEBOUNCE_SECS,
         config.save_interval.max(1)
     );
 
-    loop {
-        match subscribe_event_stream().await {
-            Ok(read_event) => {
-                drive_event_driven_saves(read_event, &file_path, &config, &app_config, debounce)
-                    .await;
-                info!("Niri event stream ended; reconnecting");
-                sleep(Duration::from_secs(1)).await;
-            }
+    'outer: loop {
+        if *shutdown.borrow_and_update() {
+            break;
+        }
+        let connection = match subscribe_event_stream().await {
+            Ok(connection) => connection,
             Err(e) => {
                 warn!(
                     "Niri event stream unavailable ({e}); falling back to periodic saves ({} min)",
                     config.save_interval.max(1)
                 );
                 loop {
-                    sleep(interval).await;
+                    tokio::select! {
+                        () = sleep(fallback_interval) => {}
+                        _ = shutdown_requested(&mut shutdown) => break 'outer,
+                    }
+                    if *shutdown.borrow_and_update() {
+                        break 'outer;
+                    }
                     if let Err(save_err) =
                         save_session_with_backup(&file_path, &config, &app_config).await
                     {
                         error!("Error saving session: {}", save_err);
                     }
-                    if subscribe_event_stream().await.is_ok() {
-                        break;
+                    if let Ok(connection) = subscribe_event_stream().await {
+                        break connection;
                     }
                 }
             }
+        };
+
+        reconnect_delay = RECONNECT_DELAY_INITIAL;
+        drive_event_driven_saves(
+            connection,
+            &file_path,
+            &config,
+            &app_config,
+            debounce,
+            shutdown.clone(),
+        )
+        .await;
+        if *shutdown.borrow_and_update() {
+            break;
         }
+        info!("Niri event stream ended; reconnecting");
+        tokio::select! {
+            () = sleep(reconnect_delay) => {}
+            _ = shutdown_requested(&mut shutdown) => break,
+        }
+        reconnect_delay = next_reconnect_delay(reconnect_delay);
+    }
+    info!("Reactive save task stopped");
+}
+
+/// A live niri event-stream connection: a blocking event reader plus a
+/// duplicate of the socket handle, so the async side can shut the connection
+/// down and unblock the reader even while niri is idle.
+struct EventConnection<F> {
+    read_event: F,
+    socket_shutdown: UnixStream,
+}
+
+/// Opens a connection to the niri IPC socket, returning the stream and a
+/// clone that can shut the connection down from another thread.
+fn open_niri_socket() -> std::io::Result<(UnixStream, UnixStream)> {
+    let socket_path = std::env::var_os(niri_ipc::socket::SOCKET_PATH_ENV).ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "NIRI_SOCKET is not set, are you running this within niri?",
+        )
+    })?;
+    let stream = UnixStream::connect(socket_path)?;
+    let shutdown_handle = stream.try_clone()?;
+    Ok((stream, shutdown_handle))
+}
+
+/// Sends one JSON-line request and reads the JSON-line reply.
+fn request_reply(stream: &mut BufReader<UnixStream>, request: Request) -> std::io::Result<Reply> {
+    let mut buf = serde_json::to_string(&request).map_err(std::io::Error::other)?;
+    buf.push('\n');
+    stream.get_mut().write_all(buf.as_bytes())?;
+    buf.clear();
+    stream.read_line(&mut buf)?;
+    serde_json::from_str(&buf).map_err(std::io::Error::other)
+}
+
+/// Blocking reader over an established event stream; returns an error once
+/// the connection dies (or is shut down from the async side).
+fn event_reader(stream: BufReader<UnixStream>) -> impl FnMut() -> std::io::Result<niri_ipc::Event> {
+    let mut stream = stream;
+    move || {
+        let mut buf = String::new();
+        stream.read_line(&mut buf)?;
+        serde_json::from_str(&buf).map_err(std::io::Error::other)
     }
 }
 
 async fn subscribe_event_stream(
-) -> Result<impl FnMut() -> std::io::Result<niri_ipc::Event> + Send + 'static> {
+) -> Result<EventConnection<impl FnMut() -> std::io::Result<niri_ipc::Event> + Send + 'static>> {
     spawn_blocking(move || {
-        let mut socket = Socket::connect().context("Failed to connect to Niri IPC socket")?;
-        let reply = socket
-            .send(Request::EventStream)
-            .context("Failed to request event stream")?;
-        match reply {
-            Reply::Ok(Response::Handled) => Ok(socket.read_events()),
+        let (stream, socket_shutdown) =
+            open_niri_socket().context("Failed to connect to Niri IPC socket")?;
+        let mut stream = BufReader::new(stream);
+        match request_reply(&mut stream, Request::EventStream)
+            .context("Failed to request event stream")?
+        {
+            Reply::Ok(Response::Handled) => {}
             Reply::Err(msg) => anyhow::bail!("Niri refused the event stream: {msg}"),
             _ => anyhow::bail!("Unexpected reply to event-stream request"),
         }
+        Ok(EventConnection {
+            read_event: event_reader(stream),
+            socket_shutdown,
+        })
     })
     .await
     .context("Event stream task join error")?
 }
 
 /// Saves (debounced) whenever a layout-relevant event arrives; returns when
-/// the event stream dies.
+/// the event stream dies or a shutdown is requested.
 async fn drive_event_driven_saves(
-    read_event: impl FnMut() -> std::io::Result<niri_ipc::Event> + Send + 'static,
+    connection: EventConnection<impl FnMut() -> std::io::Result<niri_ipc::Event> + Send + 'static>,
     file_path: &std::path::Path,
     config: &Config,
     app_config: &AppConfig,
     debounce: Duration,
+    mut shutdown: watch::Receiver<bool>,
 ) {
+    let EventConnection {
+        read_event,
+        socket_shutdown,
+    } = connection;
     let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(16);
     let reader = spawn_blocking(move || {
         let mut read_event = read_event;
@@ -1408,14 +1524,18 @@ async fn drive_event_driven_saves(
     });
 
     'outer: loop {
-        if rx.recv().await.is_none() {
-            break;
+        tokio::select! {
+            _ = shutdown_requested(&mut shutdown) => break,
+            maybe = rx.recv() => {
+                let Some(()) = maybe else { break };
+            }
         }
         let settle = sleep(debounce);
         tokio::pin!(settle);
         loop {
             tokio::select! {
                 () = &mut settle => break,
+                _ = shutdown_requested(&mut shutdown) => break 'outer,
                 maybe = rx.recv() => match maybe {
                     Some(()) => {
                         let next = tokio::time::Instant::now()
@@ -1432,6 +1552,9 @@ async fn drive_event_driven_saves(
         }
     }
 
+    // Unblock a reader parked on a socket read (shutdown path); after a
+    // natural stream death the reader has already exited on its own.
+    let _ = socket_shutdown.shutdown(Shutdown::Both);
     reader.abort();
     let _ = reader.await;
 }
@@ -1846,15 +1969,30 @@ async fn run_boot_restore(session_file: &Path, config: &Config, app_config: &App
     }
 }
 
-/// Deterministic shutdown: stop the periodic save, then perform one final
-/// save under a timeout so a wedged niri IPC cannot hang the exit.
+/// Deterministic shutdown: stop the reactive save task (gracefully via the
+/// shutdown signal — the save loop closes its event connection so no reader
+/// thread stays blocked on a socket read — with an abort as the deadline
+/// fallback), then perform one final save under a timeout so a wedged niri
+/// IPC cannot hang the exit.
 async fn shutdown_with_final_save(
-    save_task: JoinHandle<()>,
+    mut save_task: JoinHandle<()>,
+    shutdown_tx: watch::Sender<bool>,
     session_file: &Path,
     config: &Config,
     app_config: &AppConfig,
 ) {
-    save_task.abort();
+    let _ = shutdown_tx.send(true);
+    match tokio::time::timeout(SAVE_TASK_SHUTDOWN_GRACE, &mut save_task).await {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => warn!("Reactive save task ended abnormally during shutdown: {e}"),
+        Err(_) => {
+            warn!(
+                "Reactive save task did not stop within {}s; aborting it",
+                SAVE_TASK_SHUTDOWN_GRACE.as_secs()
+            );
+            save_task.abort();
+        }
+    }
     let _ = save_task.await;
 
     info!("Saving final session before shutdown");
@@ -1864,6 +2002,64 @@ async fn shutdown_with_final_save(
         Ok(Err(e)) => error!("Error saving final session: {}", e),
         Err(_) => warn!("Final save timed out"),
     }
+}
+
+/// Mode dispatch plus the long-running service loop. Split out of `main` so
+/// the fake-IPC harness can drive it end-to-end with an injected shutdown
+/// signal.
+async fn run_service_loop(
+    session_file: &Path,
+    config: &Config,
+    app_config: &AppConfig,
+    shutdown_signal: impl std::future::Future<Output = Result<()>>,
+) -> Result<()> {
+    if let Some(dest) = &config.export_to {
+        run_export(session_file, dest)?;
+        return Ok(());
+    }
+    if let Some(source) = &config.import_from {
+        run_import(source, session_file)?;
+        return Ok(());
+    }
+
+    match config.run_mode() {
+        RunMode::HealthCheck => {
+            run_health_check(session_file).await?;
+            return Ok(());
+        }
+        RunMode::SaveOnce => {
+            info!("--save-once: saving current session, then exiting");
+            save_session_with_backup(session_file, config, app_config).await?;
+            return Ok(());
+        }
+        RunMode::SaveOnly => info!("--save-only: skipping boot restore"),
+        RunMode::Normal | RunMode::RestoreOnly => {
+            run_boot_restore(session_file, config, app_config).await;
+        }
+    }
+
+    if config.dry_run {
+        info!("Dry run complete — exiting without starting the save loop.");
+        return Ok(());
+    }
+    if config.run_mode() == RunMode::RestoreOnly {
+        info!("--restore: restore complete — exiting without starting the save loop.");
+        return Ok(());
+    }
+
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let save_task = spawn(reactive_save_session(
+        session_file.to_path_buf(),
+        config.clone(),
+        app_config.clone(),
+        shutdown_rx,
+    ));
+
+    shutdown_signal.await?;
+    shutdown_with_final_save(save_task, shutdown_tx, session_file, config, app_config).await;
+
+    info!("Shutdown complete");
+    Ok(())
 }
 
 #[tokio::main]
@@ -1884,51 +2080,7 @@ async fn main() -> Result<()> {
         }
     };
 
-    if let Some(dest) = &config.export_to {
-        run_export(&session_file_path, dest)?;
-        return Ok(());
-    }
-    if let Some(source) = &config.import_from {
-        run_import(source, &session_file_path)?;
-        return Ok(());
-    }
-
-    match config.run_mode() {
-        RunMode::HealthCheck => {
-            run_health_check(&session_file_path).await?;
-            return Ok(());
-        }
-        RunMode::SaveOnce => {
-            info!("--save-once: saving current session, then exiting");
-            save_session_with_backup(&session_file_path, &config, &app_config).await?;
-            return Ok(());
-        }
-        RunMode::SaveOnly => info!("--save-only: skipping boot restore"),
-        RunMode::Normal | RunMode::RestoreOnly => {
-            run_boot_restore(&session_file_path, &config, &app_config).await;
-        }
-    }
-
-    if config.dry_run {
-        info!("Dry run complete — exiting without starting the save loop.");
-        return Ok(());
-    }
-    if config.run_mode() == RunMode::RestoreOnly {
-        info!("--restore: restore complete — exiting without starting the save loop.");
-        return Ok(());
-    }
-
-    let save_task = spawn(reactive_save_session(
-        session_file_path.clone(),
-        config.clone(),
-        app_config.clone(),
-    ));
-
-    handle_shutdown_signals().await?;
-    shutdown_with_final_save(save_task, &session_file_path, &config, &app_config).await;
-
-    info!("Shutdown complete");
-    Ok(())
+    run_service_loop(&session_file_path, &config, &app_config, handle_shutdown_signals()).await
 }
 
 #[cfg(test)]
@@ -1939,6 +2091,26 @@ mod tests {
     fn expected_exec_suffix(child_cmd: &str) -> String {
         let shell = get_restore_shell();
         format!("{}; exec {}", shell_escape(child_cmd), shell_escape(&shell))
+    }
+
+    #[test]
+    fn reconnect_backoff_doubles_and_caps() {
+        let mut delay = RECONNECT_DELAY_INITIAL;
+        let mut steps = 0;
+        while delay < RECONNECT_DELAY_MAX {
+            delay = next_reconnect_delay(delay);
+            steps += 1;
+        }
+        assert_eq!(delay, RECONNECT_DELAY_MAX);
+        assert!(
+            steps >= 5,
+            "backoff should ramp up over several steps, not jump to the cap"
+        );
+        assert_eq!(
+            next_reconnect_delay(RECONNECT_DELAY_MAX),
+            RECONNECT_DELAY_MAX,
+            "the cap must be a fixed point"
+        );
     }
 
     #[test]

@@ -44,7 +44,7 @@ niri-session-manager [OPTIONS]
 
 ### CLI Options
 
-```
+```text
 --save-interval <MINUTES>     Fallback save interval in minutes (default: 15)
 --max-backup-count <COUNT>    Number of backup files to keep (default: 5)
 --spawn-timeout <SECONDS>     How long to wait for windows to spawn (default: 5)

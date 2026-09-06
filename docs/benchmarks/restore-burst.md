@@ -13,7 +13,7 @@ real compositing work, which the fake does not simulate.
 
 ## Results
 
-```
+```text
 BENCH: 30 windows in 3.011s (10 windows/s, 100.4 ms/window)
 ```
 

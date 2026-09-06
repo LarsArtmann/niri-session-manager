@@ -28,7 +28,7 @@
           projectRootFile = "flake.nix";
         })
       );
-      getPlatform = p: p.hostPlatform.system;
+      getPlatform = p: p.stdenv.hostPlatform.system;
     in
     {
       formatter = forAllSystems (pkgs: treefmtEval.${getPlatform pkgs}.config.build.wrapper);
@@ -58,7 +58,7 @@
       });
 
       overlays.niri-session-manager = _final: prev: {
-        inherit (self.packages.${prev.hostPlatform.system}) niri-session-manager;
+        inherit (self.packages.${prev.stdenv.hostPlatform.system}) niri-session-manager;
       };
     };
 }
