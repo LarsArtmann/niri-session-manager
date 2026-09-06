@@ -58,6 +58,6 @@ nix flake check       # flake + module + formatting
 
 ## Commit style
 
-First line under 72 characters, imperative, explains *why* it matters —
+First line under 72 characters, imperative, explains _why_ it matters —
 readable by someone who has never seen the codebase. Example:
 `release: v0.4.1 — deliver 0.4.0 behavior fixes to flake consumers`.

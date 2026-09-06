@@ -22,8 +22,8 @@ BENCH: 30 windows in 3.011s (10 windows/s, 100.4 ms/window)
 - The 100 ms/window floor is dominated by the **poll quantum**: after each
   spawn, the code waits 500 ms before the first poll for the new window
   (`wait_for_new_window`), and every window is confirmed on the first poll.
-- Throughput scales with apps: windows of *different* apps spawn in parallel
-  (global cap 5), while windows of the *same* app are intentionally
+- Throughput scales with apps: windows of _different_ apps spawn in parallel
+  (global cap 5), while windows of the _same_ app are intentionally
   serialized (`SpawnLimiter`) to prevent workspace swaps.
 - Against a real compositor the latency picture is the same order: niri
   needs some hundreds of milliseconds to map a window, so the 500 ms poll
