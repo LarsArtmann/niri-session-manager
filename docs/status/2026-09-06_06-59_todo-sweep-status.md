@@ -16,19 +16,19 @@ all resolve · `cargo run -- --version` OK · `nix flake check` all checks passe
 
 ## a) FULLY DONE
 
-| Work | Evidence |
-| ---- | -------- |
-| Graceful shutdown for the event-stream reader — root cause turned out to be worse than "sloppy": on an idle desktop, SIGTERM left the `spawn_blocking` reader blocked on the socket, and tokio's runtime drop waits for blocking tasks, so exit could hang until systemd SIGKILL. Fixed at the root: `EventConnection` owns the socket plus a `try_clone`d shutdown handle; the drive loop shuts the socket down on exit; shutdown flows through a `watch` channel with a 5s grace and abort as deadline fallback | `EventConnection`, `drive_event_driven_saves`, `shutdown_with_final_save` in `src/main.rs`; test `shutdown_signal_unblocks_the_parked_event_reader` |
-| Capped exponential reconnect backoff: 1s doubling to a 30s cap; a stream alive ≥5s resets it (one niri restart cannot poison later reconnects) | `RECONNECT_*` consts + `next_reconnect_delay`; unit test `reconnect_backoff_doubles_and_caps` |
-| Polling-fallback branch made testable: injectable interval via `run_reactive_save_session` (prod wrapper keeps the 60s-min `save_interval` math); the fallback's accepted probe subscription is now *used* instead of discarded | `run_reactive_save_session`; test `polling_fallback_saves_when_event_stream_refused_then_recovers` (refusal injection → fallback saves → recovery onto the same stream, asserted `event_stream_connections() == 1`) |
-| Fake niri server upgraded: `refuse_event_streams(n)` failure injection, per-app in-flight concurrency metering, accepted-stream counter | `src/fake_niri.rs` (`refuse_event_streams`, `max_concurrent_spawns_per_app`, `event_stream_connections`) |
-| Same-app spawn sequencing test: editors strictly sequential (per-app max in-flight == 1) while different apps genuinely overlap (global max ≥ 2, proving the assertion non-vacuous) | `same_app_spawns_are_strictly_sequential_while_apps_overlap` |
-| Window-closed-between-restores test: closing one of two same-app windows respawns exactly the deficit, placed back on its saved workspace | `window_closed_between_restores_respawns_exactly_it_on_its_workspace` |
-| `--save-only` end-to-end test: `run_service_loop` extracted from `main` with an injectable shutdown signal; asserts no restore spawns, no marker write, final save snapshots the live desktop | `run_service_loop` + `save_only_skips_boot_restore_and_runs_the_save_loop` |
-| CI cargo caching: `Swatinem/rust-cache` pinned by commit SHA (v2.9.2, `6323deb102c322ba6fcbdcafc7e3dddab59af2b6`), placed after the nightly install so the cache key includes rustc version | `.github/workflows/checks.yml` |
-| niri upstream watch RESOLVED: window geometry IPC **landed upstream** — `niri_ipc::Window.layout` (`WindowLayout`: tile/window size, scroll-layout position) since v25.08; verified against the resolved 25.11 crate source on disk, not just release notes | ROADMAP idea + non-goal updated with evidence; TODO_LIST now carries the follow-up feature |
-| Living docs synced: TODO_LIST rewritten (8 items resolved this round), CHANGELOG `[Unreleased]` extended, ROADMAP (2 ideas shipped, 1 non-goal superseded), FEATURES (fallback row → FULLY_FUNCTIONAL, 2 new rows, footer), AGENTS.md (counts, architecture flow, 4 new testing gotchas, known-issues refresh) | the five docs; `docs-citations.sh` green after the edits |
-| Full verification battery at session end | see snapshot above |
+| Work                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Evidence                                                                                                                                                                                                            |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Graceful shutdown for the event-stream reader — root cause turned out to be worse than "sloppy": on an idle desktop, SIGTERM left the `spawn_blocking` reader blocked on the socket, and tokio's runtime drop waits for blocking tasks, so exit could hang until systemd SIGKILL. Fixed at the root: `EventConnection` owns the socket plus a `try_clone`d shutdown handle; the drive loop shuts the socket down on exit; shutdown flows through a `watch` channel with a 5s grace and abort as deadline fallback | `EventConnection`, `drive_event_driven_saves`, `shutdown_with_final_save` in `src/main.rs`; test `shutdown_signal_unblocks_the_parked_event_reader`                                                                 |
+| Capped exponential reconnect backoff: 1s doubling to a 30s cap; a stream alive ≥5s resets it (one niri restart cannot poison later reconnects)                                                                                                                                                                                                                                                                                                                                                                    | `RECONNECT_*` consts + `next_reconnect_delay`; unit test `reconnect_backoff_doubles_and_caps`                                                                                                                       |
+| Polling-fallback branch made testable: injectable interval via `run_reactive_save_session` (prod wrapper keeps the 60s-min `save_interval` math); the fallback's accepted probe subscription is now _used_ instead of discarded                                                                                                                                                                                                                                                                                   | `run_reactive_save_session`; test `polling_fallback_saves_when_event_stream_refused_then_recovers` (refusal injection → fallback saves → recovery onto the same stream, asserted `event_stream_connections() == 1`) |
+| Fake niri server upgraded: `refuse_event_streams(n)` failure injection, per-app in-flight concurrency metering, accepted-stream counter                                                                                                                                                                                                                                                                                                                                                                           | `src/fake_niri.rs` (`refuse_event_streams`, `max_concurrent_spawns_per_app`, `event_stream_connections`)                                                                                                            |
+| Same-app spawn sequencing test: editors strictly sequential (per-app max in-flight == 1) while different apps genuinely overlap (global max ≥ 2, proving the assertion non-vacuous)                                                                                                                                                                                                                                                                                                                               | `same_app_spawns_are_strictly_sequential_while_apps_overlap`                                                                                                                                                        |
+| Window-closed-between-restores test: closing one of two same-app windows respawns exactly the deficit, placed back on its saved workspace                                                                                                                                                                                                                                                                                                                                                                         | `window_closed_between_restores_respawns_exactly_it_on_its_workspace`                                                                                                                                               |
+| `--save-only` end-to-end test: `run_service_loop` extracted from `main` with an injectable shutdown signal; asserts no restore spawns, no marker write, final save snapshots the live desktop                                                                                                                                                                                                                                                                                                                     | `run_service_loop` + `save_only_skips_boot_restore_and_runs_the_save_loop`                                                                                                                                          |
+| CI cargo caching: `Swatinem/rust-cache` pinned by commit SHA (v2.9.2, `6323deb102c322ba6fcbdcafc7e3dddab59af2b6`), placed after the nightly install so the cache key includes rustc version                                                                                                                                                                                                                                                                                                                       | `.github/workflows/checks.yml`                                                                                                                                                                                      |
+| niri upstream watch RESOLVED: window geometry IPC **landed upstream** — `niri_ipc::Window.layout` (`WindowLayout`: tile/window size, scroll-layout position) since v25.08; verified against the resolved 25.11 crate source on disk, not just release notes                                                                                                                                                                                                                                                       | ROADMAP idea + non-goal updated with evidence; TODO_LIST now carries the follow-up feature                                                                                                                          |
+| Living docs synced: TODO_LIST rewritten (8 items resolved this round), CHANGELOG `[Unreleased]` extended, ROADMAP (2 ideas shipped, 1 non-goal superseded), FEATURES (fallback row → FULLY_FUNCTIONAL, 2 new rows, footer), AGENTS.md (counts, architecture flow, 4 new testing gotchas, known-issues refresh)                                                                                                                                                                                                    | the five docs; `docs-citations.sh` green after the edits                                                                                                                                                            |
+| Full verification battery at session end                                                                                                                                                                                                                                                                                                                                                                                                                                                                          | see snapshot above                                                                                                                                                                                                  |
 
 ## b) PARTIALLY DONE
 
@@ -37,7 +37,7 @@ all resolve · `cargo run -- --version` OK · `nix flake check` all checks passe
   cleanup). Documented in AGENTS Known Issues; acceptable last-resort, not fixed.
 - **Reconnect/backoff testing is shallow by design of the fake**: the fake server
   cannot kill a live event stream (no EOF/restart injection), so the
-  *stream-death* half of the loop (backoff after healthy-stream death, reset
+  _stream-death_ half of the loop (backoff after healthy-stream death, reset
   logic in situ) has no integration test — only the pure `next_reconnect_delay`
   function is unit-tested. The fallback+refusal path is well covered; the death
   path is not.
@@ -78,7 +78,7 @@ shipping, which is too close:
 1. **Backoff reset logic was self-defeating**: the first version reset
    `reconnect_delay` to the initial value after every successful subscribe,
    which erased the doubling before it was ever read — behaviorally identical
-   to the old fixed 1s. Caught only by a rustc `unused_assignments` *warning*,
+   to the old fixed 1s. Caught only by a rustc `unused_assignments` _warning_,
    which nothing denies. If I hadn't manually grepped warnings, a silent no-op
    "feature" would have shipped with a green test suite.
 2. **`JoinHandle` double-poll panic**: `timeout(grace, &mut handle)` followed by
@@ -88,7 +88,7 @@ shipping, which is too close:
 3. **Discarded-probe event race**: the initial fallback design dropped the
    accepted probe subscription and reconnected, which would let the fake's
    push-loop swallow queued events and flake the new test. Caught in
-   self-review *before* running tests.
+   self-review _before_ running tests.
 
 Plus honest friction: 6 clippy errors introduced (all fixed same session) and
 2 rejected edit batches from racing the auto-commit daemon (the edit tool's
@@ -106,7 +106,7 @@ the write discipline cost round trips.
   `RUSTFLAGS=-Dwarnings` on a pinned toolchain). Warning-only flaws (see d1)
   survive otherwise. CI does not fail on warnings today.
 - When a "simple" refactor touches async shutdown semantics, write the
-  regression test *first* — the double-poll bug existed only between edit and
+  regression test _first_ — the double-poll bug existed only between edit and
   test run.
 - Remember the edit-tool freshness rule in this repo: the daemon (and `cargo
   fmt`) rewrite files under you; always `view` immediately before `edit`, and
@@ -141,6 +141,7 @@ the write discipline cost round trips.
 Prioritized; grouped; each is bounded.
 
 **Release & validation (P0)**
+
 1. Get maintainer go-ahead, then cut **release 0.5.0** (tag + push; SystemNix pins it).
 2. Tidy `[Unreleased]` before cutting: move shutdown-hang entry to `Fixed`; update `Cargo.toml` version.
 3. Verify the **CI run with rust-cache** goes green (first real run proves the new step + SHA pin).
@@ -157,7 +158,7 @@ Prioritized; grouped; each is bounded.
 12. Test: event burst during debounce produces exactly one save (coalescing assertion via backup count).
 13. Test: `reactive_save_session` wrapper rejects/uses `save_interval` math (wrapper ↔ core contract).
 14. Test: shutdown **grace expiry** path — task wedged → abort → final save still runs.
-15. Test: refused stream *never* writes garbage (fallback saves stay valid JSON).
+15. Test: refused stream _never_ writes garbage (fallback saves stay valid JSON).
 16. Enable `clippy.toml` test allowances + run `cargo clippy --all-features --tests` in CI (kills lint-dark test code).
 17. CI: `-D warnings` for rustc on the pinned nightly (catches unused-assignment class flaws).
 18. Consider a stress/property test: N concurrent restores against the fake → idempotency invariants hold.

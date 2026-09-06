@@ -19,19 +19,19 @@
 
 ## Session capture and persistence
 
-| Feature                                                  | Status                    | Notes                                                                                                              |
-| -------------------------------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| Reactive saving via niri event stream                    | 🟢 `FULLY_FUNCTIONAL`     | `reactive_save_session`; layout events trigger debounced (2s) saves; tested end-to-end against the fake IPC server |
-| Interval fallback when the event stream is down          | 🟢 `FULLY_FUNCTIONAL`     | saves at the configured interval until niri accepts a subscription again (the accepted probe is used directly); refusal-injection tested with an injectable interval, including recovery  |
-| Graceful shutdown of the reactive save loop              | 🟢 `FULLY_FUNCTIONAL`     | watch signal + per-connection socket shutdown unblocks the parked reader; 5s grace with abort fallback; parked-reader test  |
-| Reconnect backoff for stream deaths                      | 🟢 `FULLY_FUNCTIONAL`     | 1s doubling to a 30s cap; healthy (≥5s) streams reset it; unit-tested sequence                                              |
-| Unchanged-save throttling                                | 🟢 `FULLY_FUNCTIONAL`     | byte-identical capture skips backup rotation and write; tested                                                     |
-| Atomic writes (temp + fsync + rename + parent-dir fsync) | 🟢 `FULLY_FUNCTIONAL`     | `atomic_write`; the rename survives power loss; tested                                                             |
-| Backup rotation with retention                           | 🟢 `FULLY_FUNCTIONAL`     | `create_backup`; skips corrupt files since 0.4.0; rotation tested (newest kept, oldest evicted)                    |
-| Corrupt-session recovery via `.bak` fallback             | 🟢 `FULLY_FUNCTIONAL`     | `find_latest_valid_backup`; 3 dedicated tests                                                                      |
-| Session export / import (`--export`, `--import`)         | 🟢 `FULLY_FUNCTIONAL`     | import validates before replacing and backs up the current session; 4 tests                                        |
-| Boot-scoped restore gate (one restore per boot)          | 🟢 `FULLY_FUNCTIONAL`     | `should_restore_on_boot` + stale-marker pruning; unit + IPC-tested end-to-end                                      |
-| Dry-run preview                                          | 🟢 `FULLY_FUNCTIONAL`     | no spawning, no saving, no marker; regression-tested (including repeat runs)                                       |
+| Feature                                                  | Status                | Notes                                                                                                                                                                                    |
+| -------------------------------------------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Reactive saving via niri event stream                    | 🟢 `FULLY_FUNCTIONAL` | `reactive_save_session`; layout events trigger debounced (2s) saves; tested end-to-end against the fake IPC server                                                                       |
+| Interval fallback when the event stream is down          | 🟢 `FULLY_FUNCTIONAL` | saves at the configured interval until niri accepts a subscription again (the accepted probe is used directly); refusal-injection tested with an injectable interval, including recovery |
+| Graceful shutdown of the reactive save loop              | 🟢 `FULLY_FUNCTIONAL` | watch signal + per-connection socket shutdown unblocks the parked reader; 5s grace with abort fallback; parked-reader test                                                               |
+| Reconnect backoff for stream deaths                      | 🟢 `FULLY_FUNCTIONAL` | 1s doubling to a 30s cap; healthy (≥5s) streams reset it; unit-tested sequence                                                                                                           |
+| Unchanged-save throttling                                | 🟢 `FULLY_FUNCTIONAL` | byte-identical capture skips backup rotation and write; tested                                                                                                                           |
+| Atomic writes (temp + fsync + rename + parent-dir fsync) | 🟢 `FULLY_FUNCTIONAL` | `atomic_write`; the rename survives power loss; tested                                                                                                                                   |
+| Backup rotation with retention                           | 🟢 `FULLY_FUNCTIONAL` | `create_backup`; skips corrupt files since 0.4.0; rotation tested (newest kept, oldest evicted)                                                                                          |
+| Corrupt-session recovery via `.bak` fallback             | 🟢 `FULLY_FUNCTIONAL` | `find_latest_valid_backup`; 3 dedicated tests                                                                                                                                            |
+| Session export / import (`--export`, `--import`)         | 🟢 `FULLY_FUNCTIONAL` | import validates before replacing and backs up the current session; 4 tests                                                                                                              |
+| Boot-scoped restore gate (one restore per boot)          | 🟢 `FULLY_FUNCTIONAL` | `should_restore_on_boot` + stale-marker pruning; unit + IPC-tested end-to-end                                                                                                            |
+| Dry-run preview                                          | 🟢 `FULLY_FUNCTIONAL` | no spawning, no saving, no marker; regression-tested (including repeat runs)                                                                                                             |
 
 ## Restore
 
@@ -55,16 +55,16 @@
 
 ## Configuration, integration, and operations
 
-| Feature                                                                     | Status                | Notes                                                                                                                            |
-| --------------------------------------------------------------------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| TOML config (app_mappings, single_instance_apps, skip_apps, terminal_state) | 🟢 `FULLY_FUNCTIONAL` | `$XDG_CONFIG_HOME/niri-session-manager/config.toml`; missing default file auto-created; invalid TOML falls back; property-tested |
-| `--config-file` override                                                    | 🟢 `FULLY_FUNCTIONAL` | explicit path missing = error (never auto-creates); default path missing = template                                              |
-| Run modes: `--restore`, `--save-only`, `--save-once`                        | 🟢 `FULLY_FUNCTIONAL` | mutually conflicting flags; save-once powers the suspend hook                                                                    |
-| `--health-check`                                                            | 🟢 `FULLY_FUNCTIONAL` | niri reachability + version, boot-gate state, session file age; IPC-tested, fails loudly without niri                            |
-| Session format v4 (descriptive version, legacy aliases)                     | 🟢 `FULLY_FUNCTIONAL` | versions 1–3 load via `#[serde(alias)]`; property tests lock round-trips; see `docs/example-session.json`                        |
-| NixOS module (6 tunables + suspend hook)                                    | 🟢 `FULLY_FUNCTIONAL` | `module.nix`: 6 of 7 CLI tunables mirrored (`dryRun` is CLI-only by design) + `saveOnSuspend` `sleep.target` oneshot             |
-| Supply-chain checks (cargo-deny, cargo audit)                               | 🟢 `FULLY_FUNCTIONAL` | `deny.toml` + CI step; audit clean (0 advisories across 140 crates, 2026-09-04)                                                  |
-| Structured logging (tracing, `RUST_LOG`)                                    | 🟢 `FULLY_FUNCTIONAL` | journald-native output with timestamps and levels                                                                                |
+| Feature                                                                     | Status                | Notes                                                                                                                              |
+| --------------------------------------------------------------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| TOML config (app_mappings, single_instance_apps, skip_apps, terminal_state) | 🟢 `FULLY_FUNCTIONAL` | `$XDG_CONFIG_HOME/niri-session-manager/config.toml`; missing default file auto-created; invalid TOML falls back; property-tested   |
+| `--config-file` override                                                    | 🟢 `FULLY_FUNCTIONAL` | explicit path missing = error (never auto-creates); default path missing = template                                                |
+| Run modes: `--restore`, `--save-only`, `--save-once`                        | 🟢 `FULLY_FUNCTIONAL` | mutually conflicting flags; save-once powers the suspend hook                                                                      |
+| `--health-check`                                                            | 🟢 `FULLY_FUNCTIONAL` | niri reachability + version, boot-gate state, session file age; IPC-tested, fails loudly without niri                              |
+| Session format v4 (descriptive version, legacy aliases)                     | 🟢 `FULLY_FUNCTIONAL` | versions 1–3 load via `#[serde(alias)]`; property tests lock round-trips; see `docs/example-session.json`                          |
+| NixOS module (6 tunables + suspend hook)                                    | 🟢 `FULLY_FUNCTIONAL` | `module.nix`: 6 of 7 CLI tunables mirrored (`dryRun` is CLI-only by design) + `saveOnSuspend` `sleep.target` oneshot               |
+| Supply-chain checks (cargo-deny, cargo audit)                               | 🟢 `FULLY_FUNCTIONAL` | `deny.toml` + CI step; audit clean (0 advisories across 140 crates, 2026-09-04)                                                    |
+| Structured logging (tracing, `RUST_LOG`)                                    | 🟢 `FULLY_FUNCTIONAL` | journald-native output with timestamps and levels                                                                                  |
 | Window size / column-width capture                                          | ⚪ `PLANNED`          | unblocked: niri-ipc exposes `Window.layout` geometry since v25.08 (pinned crate 25.11 carries it) — needs session-format v5 design |
 
 ---

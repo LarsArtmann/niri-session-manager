@@ -153,7 +153,7 @@ impl FakeNiri {
         self.lock().fail_next_windows = count;
     }
 
-    /// Makes the next `count` EventStream requests fail with a protocol
+    /// Makes the next `count` `EventStream` requests fail with a protocol
     /// error while ordinary requests keep working.
     pub(crate) fn refuse_event_streams(&self, count: usize) {
         self.lock().refuse_next_event_streams = count;
@@ -320,7 +320,7 @@ fn handle_action(action: Action, state: &Arc<Mutex<FakeState>>) -> Reply {
                 let mut st = state
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
-                st.spawn_commands.push(command.clone());
+                st.spawn_commands.push(command);
                 st.in_flight = st.in_flight.saturating_add(1);
                 st.max_in_flight = st.max_in_flight.max(st.in_flight);
                 let app_in_flight = st.app_in_flight.entry(app_id.clone()).or_insert(0);
@@ -1000,7 +1000,7 @@ async fn shutdown_signal_unblocks_the_parked_event_reader() {
             Duration::from_secs(SAVE_DEBOUNCE_SECS),
             shutdown_rx,
         )
-        .await
+        .await;
     });
 
     // Let the blocking reader park on a socket read with no events flowing.
