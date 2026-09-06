@@ -25,5 +25,6 @@ buildRustPackage (
     };
 
     meta.mainProgram = "niri-session-manager";
+    meta.license = lib.licenses.gpl3Only;
   }
 )
