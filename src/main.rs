@@ -1313,7 +1313,7 @@ const SAVE_DEBOUNCE_SECS: u64 = 2;
 /// Wait before the first reconnect attempt after a live event stream dies.
 const RECONNECT_DELAY_INITIAL: Duration = Duration::from_secs(1);
 /// Upper bound for the exponential reconnect backoff.
-const RECONNECT_DELAY_MAX: Duration = Duration::from_secs(60);
+const RECONNECT_DELAY_MAX: Duration = Duration::from_secs(30);
 /// How long shutdown waits for the reactive save task to stop gracefully
 /// before falling back to an abort.
 const SAVE_TASK_SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
@@ -1397,7 +1397,7 @@ async fn run_reactive_save_session(
                 loop {
                     tokio::select! {
                         () = sleep(fallback_interval) => {}
-                        _ = shutdown_requested(&mut shutdown) => break 'outer,
+                        () = shutdown_requested(&mut shutdown) => break 'outer,
                     }
                     if *shutdown.borrow_and_update() {
                         break 'outer;
@@ -1435,7 +1435,7 @@ async fn run_reactive_save_session(
         };
         tokio::select! {
             () = sleep(reconnect_delay) => {}
-            _ = shutdown_requested(&mut shutdown) => break,
+            () = shutdown_requested(&mut shutdown) => break,
         }
     }
     info!("Reactive save task stopped");
@@ -1464,7 +1464,10 @@ fn open_niri_socket() -> std::io::Result<(UnixStream, UnixStream)> {
 }
 
 /// Sends one JSON-line request and reads the JSON-line reply.
-fn request_reply(stream: &mut BufReader<UnixStream>, request: Request) -> std::io::Result<Reply> {
+fn request_reply(
+    stream: &mut BufReader<UnixStream>,
+    request: &Request,
+) -> std::io::Result<Reply> {
     let mut buf = serde_json::to_string(&request).map_err(std::io::Error::other)?;
     buf.push('\n');
     stream.get_mut().write_all(buf.as_bytes())?;
@@ -1490,7 +1493,7 @@ async fn subscribe_event_stream(
         let (stream, socket_shutdown) =
             open_niri_socket().context("Failed to connect to Niri IPC socket")?;
         let mut stream = BufReader::new(stream);
-        match request_reply(&mut stream, Request::EventStream)
+        match request_reply(&mut stream, &Request::EventStream)
             .context("Failed to request event stream")?
         {
             Reply::Ok(Response::Handled) => {}
@@ -1532,7 +1535,7 @@ async fn drive_event_driven_saves(
 
     'outer: loop {
         tokio::select! {
-            _ = shutdown_requested(&mut shutdown) => break,
+            () = shutdown_requested(&mut shutdown) => break,
             maybe = rx.recv() => {
                 let Some(()) = maybe else { break };
             }
@@ -1542,7 +1545,7 @@ async fn drive_event_driven_saves(
         loop {
             tokio::select! {
                 () = &mut settle => break,
-                _ = shutdown_requested(&mut shutdown) => break 'outer,
+                () = shutdown_requested(&mut shutdown) => break 'outer,
                 maybe = rx.recv() => match maybe {
                     Some(()) => {
                         let next = tokio::time::Instant::now()

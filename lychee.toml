@@ -1,0 +1,5 @@
+accept = ["200..=299", "429"]
+
+[hosts."www.gnu.org"]
+concurrency = 1
+request_interval = "3s"
