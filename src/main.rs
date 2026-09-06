@@ -1464,10 +1464,7 @@ fn open_niri_socket() -> std::io::Result<(UnixStream, UnixStream)> {
 }
 
 /// Sends one JSON-line request and reads the JSON-line reply.
-fn request_reply(
-    stream: &mut BufReader<UnixStream>,
-    request: &Request,
-) -> std::io::Result<Reply> {
+fn request_reply(stream: &mut BufReader<UnixStream>, request: &Request) -> std::io::Result<Reply> {
     let mut buf = serde_json::to_string(&request).map_err(std::io::Error::other)?;
     buf.push('\n');
     stream.get_mut().write_all(buf.as_bytes())?;

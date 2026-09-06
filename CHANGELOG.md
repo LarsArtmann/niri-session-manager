@@ -28,6 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **Graceful shutdown for the event-stream reader**: each event connection is an `EventConnection` owning the socket plus a `try_clone`d shutdown handle — on shutdown the drive loop shuts the socket down, unblocking the parked `spawn_blocking` reader, and the save loop stops via a watch signal (abort remains the deadline fallback under a 5s grace). SIGTERM on an idle desktop no longer risks hanging exit on a blocked reader
 - **Capped exponential reconnect backoff**: stream-death reconnects start at 1s and double to a 30s cap; a stream that stayed healthy ≥5s resets the backoff, so one niri restart does not poison later reconnects
 - **Harness coverage for the reactive loop's fallback branch**: the fake server can refuse event streams (`refuse_event_streams`) and meters per-app spawn concurrency; new tests cover polling-fallback saves with recovery onto the accepted stream, parked-reader shutdown, same-app spawn sequencing under cross-app overlap, window-closed re-restore, and an end-to-end `--save-only` run — 114 tests, up from 108
+
+### Fixed
+
+- **cargo-deny licenses check passes**: the crate now declares `license = "GPL-3.0-only"` (the missing manifest field failed the policy check), the Nix package declares `meta.license`, and the deny.toml allowlist admits MPL-2.0 (option-ext via dirs) plus GPL-3.0-only/-or-later (this crate and niri-ipc, which is GPL-3.0-or-later)
+- Flake evaluation no longer warns: `getPlatform` reads `stdenv.hostPlatform` instead of the renamed top-level `hostPlatform` alias
 - **Injectable polling-fallback interval** (`run_reactive_save_session`), replacing the hard-coded `config.save_interval` sleep so the fallback branch is testable below the 60s minimum
 - **CI caches cargo builds** (Swatinem/rust-cache), cutting the per-run dependency rebuild
 - `run_service_loop`: mode dispatch + service loop extracted from `main` so the harness can drive it end-to-end with an injected shutdown signal

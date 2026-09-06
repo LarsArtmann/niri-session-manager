@@ -22,6 +22,8 @@ cargo test restore_burst --release -- --ignored --nocapture   # benchmark (see d
 
 - Devshell: `nix develop` (`.envrc` has `use flake`, so direnv handles it).
 - CI (`.github/workflows/checks.yml`) additionally runs `deadnix`, `statix check`, `cargo-deny` (advisories/licenses/bans, config in `deny.toml`), a `--version` smoke step, and the docs-citations linter. CI builds with nightly Rust, but the code must compile on **stable Rust** (edition 2021) — a past release broke NixOS stable builds over `let` chains. No nightly features.
+- Supply-chain policy: the crate declares `license = "GPL-3.0-only"` (Cargo.toml) and deny.toml's allowlist admits MPL-2.0 + GPL-3.0-only/-or-later because niri-ipc is GPL-3.0-or-later — a new dependency with an unlisted license fails `cargo deny check licenses` (add it to `deny.toml`; cargo-deny/cargo-audit are in the devshell, not on bare PATH).
+- Lint configs the repo honours: `.markdownlint.json` (MD013/24/26/29 off by design — wide tables + archived status docs; MD040 stays on: fenced code declares a language), `.lycheeignore` + `lychee.toml` (fsf.org is canonical GPL text on a TLS-broken server; gnu.org rate-limits checkers with 429, so 429 is accepted and gnu.org is throttled).
 - Never use a Makefile/justfile; flake.nix is the task runner.
 
 ## Session rules learned the hard way
@@ -94,3 +96,5 @@ Three source files (the first two are the real code, the third is test infrastru
 - Terminal flag profiles are doc-verified but not exercised against real terminal binaries; daily-driver terminals deserve must-not-regress status (ROADMAP Q3 open).
 - If shutdown grace expires (save task wedged >5s), the abort path skips the event-connection cleanup, so the parked reader leaks until process exit — acceptable last-resort behavior, the graceful path is the norm.
 - `spawn_single_window` issues blocking `Socket` I/O on the async runtime (one worker per in-flight spawn); fine on the multi-thread production runtime, worth moving to `spawn_blocking` if spawn paths grow.
+- vulnix (buildflow) flags build-time stdenv toolchain advisories (binutils/bison/zlib — 20 derivations); the shipped runtime closure is 7 store paths and clean, so these are accepted, and the scan needs >2 min so buildflow's default timeout kills it first.
+- jscpd flags the deliberate test-fixture similarity in proc.rs/fake_niri.rs; in-code rationale comments mark the clones (each test's fixture is its input data) — do not extract.

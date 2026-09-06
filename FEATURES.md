@@ -65,8 +65,8 @@
 | NixOS module (6 tunables + suspend hook)                                    | 🟢 `FULLY_FUNCTIONAL` | `module.nix`: 6 of 7 CLI tunables mirrored (`dryRun` is CLI-only by design) + `saveOnSuspend` `sleep.target` oneshot             |
 | Supply-chain checks (cargo-deny, cargo audit)                               | 🟢 `FULLY_FUNCTIONAL` | `deny.toml` + CI step; audit clean (0 advisories across 140 crates, 2026-09-04)                                                  |
 | Structured logging (tracing, `RUST_LOG`)                                    | 🟢 `FULLY_FUNCTIONAL` | journald-native output with timestamps and levels                                                                                |
-| Window size / column-width capture                                          | ⚪ `PLANNED`          | blocked on niri IPC exposing layout geometry upstream; revisit when available                                                    |
+| Window size / column-width capture                                          | ⚪ `PLANNED`          | unblocked: niri-ipc exposes `Window.layout` geometry since v25.08 (pinned crate 25.11 carries it) — needs session-format v5 design |
 
 ---
 
-_Verified against code 2026-09-04 (108 tests + 1 ignored benchmark, all green)._
+_Verified against code 2026-09-06 (114 tests + 1 ignored benchmark, all green)._
