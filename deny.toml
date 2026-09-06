@@ -18,7 +18,9 @@ allow = [
   "Unicode-DFS-2016",
   "Zlib",
   "CDLA-Permissive-2.0",
+  "MPL-2.0",
   "GPL-3.0-only",
+  "GPL-3.0-or-later",
 ]
 
 [bans]

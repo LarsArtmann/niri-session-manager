@@ -2087,7 +2087,13 @@ async fn main() -> Result<()> {
         }
     };
 
-    run_service_loop(&session_file_path, &config, &app_config, handle_shutdown_signals()).await
+    run_service_loop(
+        &session_file_path,
+        &config,
+        &app_config,
+        handle_shutdown_signals(),
+    )
+    .await
 }
 
 #[cfg(test)]
