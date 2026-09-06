@@ -1317,6 +1317,9 @@ const RECONNECT_DELAY_MAX: Duration = Duration::from_secs(60);
 /// How long shutdown waits for the reactive save task to stop gracefully
 /// before falling back to an abort.
 const SAVE_TASK_SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
+/// A stream that survived this long counts as healthy and resets the
+/// reconnect backoff; quicker deaths count as niri flapping.
+const RECONNECT_HEALTHY_STREAM: Duration = Duration::from_secs(5);
 
 /// Doubles the reconnect delay, capped so a flapping niri cannot pin the save
 /// loop into a hot reconnect cycle.
@@ -1411,7 +1414,7 @@ async fn run_reactive_save_session(
             }
         };
 
-        reconnect_delay = RECONNECT_DELAY_INITIAL;
+        let stream_started = std::time::Instant::now();
         drive_event_driven_saves(
             connection,
             &file_path,
@@ -1425,11 +1428,15 @@ async fn run_reactive_save_session(
             break;
         }
         info!("Niri event stream ended; reconnecting");
+        reconnect_delay = if stream_started.elapsed() >= RECONNECT_HEALTHY_STREAM {
+            RECONNECT_DELAY_INITIAL
+        } else {
+            next_reconnect_delay(reconnect_delay)
+        };
         tokio::select! {
             () = sleep(reconnect_delay) => {}
             _ = shutdown_requested(&mut shutdown) => break,
         }
-        reconnect_delay = next_reconnect_delay(reconnect_delay);
     }
     info!("Reactive save task stopped");
 }

@@ -171,6 +171,9 @@ mod tests {
     use std::os::unix::fs::symlink;
     use std::path::PathBuf;
 
+    // The repeated kitty/fish/child setups below are deliberate: each test's
+    // fake proc-tree shape is its input data, kept inline so every scenario
+    // reads top-to-bottom (jscpd flags them; do not extract).
     fn create_fake_proc_dir(dir: &Path, pid: u32) -> PathBuf {
         let pid_dir = dir.join(pid.to_string());
         fs::create_dir_all(&pid_dir).unwrap();

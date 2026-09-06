@@ -581,6 +581,9 @@ async fn focus_is_restored_for_the_saved_focused_window() {
 
 // --- M3 (completion): shutdown performs the final save ---
 
+// Fixture setup repeated across IPC tests is deliberate: explicit per-test
+// scaffolding is the file's idiom, and the env guard's lifetime is
+// load-bearing (jscpd flags these clones; do not extract).
 #[tokio::test]
 async fn shutdown_aborts_periodic_save_then_runs_final_save() {
     let niri = FakeNiri::start();
