@@ -17,7 +17,7 @@
 
 | Task                                                                                                                           | Status       | Impact | Effort | Evidence                                                                               |
 | ------------------------------------------------------------------------------------------------------------------------------ | ------------ | ------ | ------ | -------------------------------------------------------------------------------------- |
-| Cut release 0.5.0 (idempotent restore, reactive saves, graceful shutdown, backoff) and let SystemNix pin it                    | 🔵 `BLOCKED` | High   | Low    | `CHANGELOG.md` [Unreleased]; tag/push awaits maintainer go-ahead                       |
+| Release v0.5.0 — tag cut locally (`00424ca`, `v0.5.0`), awaiting push so SystemNix can pin the tag                              | 🔵 `BLOCKED` | High   | Low    | `CHANGELOG.md` [0.5.0]; push awaits maintainer go-ahead                                |
 | Soak-test reactive saves + idempotent restore on real hardware (daily driver) — the fake server cannot prove niri-event timing | 🔴 `TODO`    | High   | Low    | `reactive_save_session` in `src/main.rs`; all integration tests use `src/fake_niri.rs` |
 
 ## Medium Impact
