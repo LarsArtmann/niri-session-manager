@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Nothing yet.
+
+### Changed
+
+- Nothing yet.
+
+### Fixed
+
+- Nothing yet.
+
+## [0.6.0] - 2026-09-15
+
+### Added
+
 - **Focus restoration via a final focus pass**: focus is applied once, after every spawn task has settled, instead of per-spawn — a window appearing after the saved-focused one can no longer steal focus back (`spawn_windows` in `src/restore.rs`). The pre-existing race was proven at commit `8d2386b`; the ordering invariant is now pinned by the harness focus test.
 - **Restore-marker pruning when the session file vanishes**: a marker matching the current boot whose session file is gone no longer blocks a re-restore — the gate prunes the orphaned marker and restores (a fresh restore just seeds a new session from the current state). Markers are still left alone when the boot id itself is unreadable, since there is nothing to compare against (`should_restore_on_boot` in `src/restore.rs`).
 - **Health-check layout coverage**: `--health-check` now reports how many saved windows carry captured v5 layout data, e.g. "session file: 12 window(s), 9 with captured layout" (`run_health_check` in `src/main.rs`).
