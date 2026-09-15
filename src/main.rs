@@ -239,7 +239,7 @@ const RETRY_DELAY_MAX: Duration = Duration::from_secs(30);
 /// failing restore backs off instead of hammering niri at a fixed interval.
 /// `--retry-delay` is the base (waited after the first failure); a base of 0
 /// retries immediately, as that configuration always has.
-const fn next_retry_delay(base_secs: u64, failed_attempts: u32) -> Duration {
+fn next_retry_delay(base_secs: u64, failed_attempts: u32) -> Duration {
     let factor = 2u32.saturating_pow(failed_attempts.saturating_sub(1));
     Duration::from_secs(base_secs)
         .saturating_mul(factor)
@@ -1148,14 +1148,12 @@ async fn spawn_single_window(
     claimed: &Mutex<HashSet<u64>>,
     workspaces: &[Workspace],
 ) -> Result<usize> {
-    let mut spawn_socket = Socket::connect().context("Failed to connect to Niri IPC socket")?;
-    let reply = spawn_socket
-        .send(Request::Action(Action::Spawn {
-            command: command.to_vec(),
-        }))
-        .context("Failed to send spawn request")?;
+    let response = niri_send(Request::Action(Action::Spawn {
+        command: command.to_vec(),
+    }))
+    .await?;
 
-    if !matches!(reply, Reply::Ok(Response::Handled)) {
+    if !matches!(response, Response::Handled) {
         warn!(
             "Failed to spawn app: {} using command: {:?}",
             saved_window.app_id, command
@@ -1171,7 +1169,7 @@ async fn spawn_single_window(
         return Ok(0);
     };
 
-    apply_window_placement(win_id, saved_window, workspaces);
+    apply_window_placement(win_id, saved_window, workspaces).await;
 
     if saved_window.is_focused {
         focus_window(win_id, &saved_window.app_id).await;
@@ -1234,33 +1232,28 @@ fn workspace_reference(workspace: &WorkspaceInfo) -> Option<WorkspaceReferenceAr
 /// Best-effort placement: pin to the saved output if it still exists (with a
 /// workspace-based fallback), move to the saved workspace, never steal focus
 /// with the move itself.
-fn apply_window_placement(win_id: u64, saved_window: &SavedWindow, workspaces: &[Workspace]) {
+async fn apply_window_placement(win_id: u64, saved_window: &SavedWindow, workspaces: &[Workspace]) {
     if let Some(output) = resolve_target_output(&saved_window.workspace, workspaces) {
-        let connect = Socket::connect().context("Failed to connect to Niri IPC socket");
-        if let Ok(mut move_socket) = connect {
-            let result = move_socket.send(Request::Action(Action::MoveWindowToMonitor {
-                id: Some(win_id),
-                output,
-            }));
-            if let Err(e) = &result {
-                warn!("Warning: failed to move window {win_id} to monitor: {e:?}");
-            }
+        if let Err(e) = niri_send(Request::Action(Action::MoveWindowToMonitor {
+            id: Some(win_id),
+            output,
+        }))
+        .await
+        {
+            warn!("Warning: failed to move window {win_id} to monitor: {e:?}");
         }
     }
 
-    let workspace_reference = workspace_reference(&saved_window.workspace);
-
-    match workspace_reference {
+    match workspace_reference(&saved_window.workspace) {
         Some(reference) => {
-            let connect = Socket::connect().context("Failed to connect to Niri IPC socket");
-            if let Ok(mut move_socket) = connect {
-                if let Err(e) = move_socket.send(Request::Action(Action::MoveWindowToWorkspace {
-                    window_id: Some(win_id),
-                    reference,
-                    focus: false,
-                })) {
-                    warn!("Warning: failed to move window {win_id} to workspace: {e:?}");
-                }
+            if let Err(e) = niri_send(Request::Action(Action::MoveWindowToWorkspace {
+                window_id: Some(win_id),
+                reference,
+                focus: false,
+            }))
+            .await
+            {
+                warn!("Warning: failed to move window {win_id} to workspace: {e:?}");
             }
         }
         None => {
