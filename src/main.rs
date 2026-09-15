@@ -232,6 +232,20 @@ impl fmt::Display for RestoreOutcome {
     }
 }
 
+/// Upper bound for the exponential backoff between restore retry attempts.
+const RETRY_DELAY_MAX: Duration = Duration::from_secs(30);
+
+/// Doubles the retry delay after each failed attempt so a persistently
+/// failing restore backs off instead of hammering niri at a fixed interval.
+/// `--retry-delay` is the base (waited after the first failure); a base of 0
+/// retries immediately, as that configuration always has.
+const fn next_retry_delay(base_secs: u64, failed_attempts: u32) -> Duration {
+    let factor = 2u32.saturating_pow(failed_attempts.saturating_sub(1));
+    Duration::from_secs(base_secs)
+        .saturating_mul(factor)
+        .min(RETRY_DELAY_MAX)
+}
+
 async fn restore_session(
     file_path: &Path,
     config: &Config,
@@ -244,11 +258,13 @@ async fn restore_session(
             Ok(outcome) => return Ok(outcome),
             Err(e) => {
                 if attempt < attempts {
+                    let delay = next_retry_delay(config.retry_delay, attempt);
                     warn!(
-                        "Attempt {} failed: {}. Retrying in {} seconds...",
-                        attempt, e, config.retry_delay
+                        "Attempt {} failed: {e}. Retrying in {}s...",
+                        attempt,
+                        delay.as_secs()
                     );
-                    sleep(Duration::from_secs(config.retry_delay)).await;
+                    sleep(delay).await;
                 }
                 last_error = Some(e);
             }
@@ -2123,6 +2139,28 @@ mod tests {
             next_reconnect_delay(RECONNECT_DELAY_MAX),
             RECONNECT_DELAY_MAX,
             "the cap must be a fixed point"
+        );
+    }
+
+    #[test]
+    fn retry_backoff_starts_at_the_base_and_caps() {
+        assert_eq!(next_retry_delay(2, 1), Duration::from_secs(2));
+        assert_eq!(next_retry_delay(2, 2), Duration::from_secs(4));
+        assert_eq!(next_retry_delay(2, 3), Duration::from_secs(8));
+        assert_eq!(
+            next_retry_delay(20, 2),
+            RETRY_DELAY_MAX,
+            "20s doubled would exceed the cap; the cap must hold"
+        );
+        assert_eq!(
+            next_retry_delay(RETRY_DELAY_MAX.as_secs(), u32::MAX),
+            RETRY_DELAY_MAX,
+            "the cap must be a fixed point"
+        );
+        assert_eq!(
+            next_retry_delay(0, 3),
+            Duration::ZERO,
+            "a zero base retries immediately, as it always has"
         );
     }
 
