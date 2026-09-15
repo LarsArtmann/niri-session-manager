@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 5,
   "windows": [
     {
       "id": 3,
@@ -9,7 +9,12 @@
       "output": "DP-1",
       "is_focused": false,
       "pid": 4213,
-      "terminal_state": null
+      "terminal_state": null,
+      "layout": {
+        "scroll_position": { "column": 1, "tile_in_column": 1 },
+        "tile_width": 960.0,
+        "tile_height": 1080.0
+      }
     },
     {
       "id": 7,
@@ -22,6 +27,11 @@
       "terminal_state": {
         "child_command": ["nvim", "/home/lars/projects/niri-session-manager"],
         "child_cwd": "/home/lars/projects/niri-session-manager"
+      },
+      "layout": {
+        "scroll_position": { "column": 2, "tile_in_column": 1 },
+        "tile_width": 960.0,
+        "tile_height": 1080.0
       }
     },
     {
@@ -32,7 +42,12 @@
       "output": "DP-1",
       "is_focused": false,
       "pid": 8804,
-      "terminal_state": null
+      "terminal_state": null,
+      "layout": {
+        "scroll_position": { "column": 1, "tile_in_column": 2 },
+        "tile_width": 960.0,
+        "tile_height": 1046.0
+      }
     }
   ]
 }
