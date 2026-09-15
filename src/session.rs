@@ -208,10 +208,7 @@ pub fn dedupe_single_instance_windows(
         .collect()
 }
 
-pub fn filter_skipped_windows(
-    windows: Vec<SavedWindow>,
-    skip_apps: &[String],
-) -> Vec<SavedWindow> {
+pub fn filter_skipped_windows(windows: Vec<SavedWindow>, skip_apps: &[String]) -> Vec<SavedWindow> {
     windows
         .into_iter()
         .filter(|w| !skip_apps.iter().any(|s| s == &w.app_id))
@@ -404,9 +401,7 @@ pub fn create_backup(file_path: &Path) -> Result<()> {
 
 /// Attempts to find and parse the most recent valid `.bak` file alongside the session file.
 /// Returns the backup path and parsed session data if a valid backup exists.
-pub fn find_latest_valid_backup(
-    file_path: &Path,
-) -> Option<(std::path::PathBuf, SessionData)> {
+pub fn find_latest_valid_backup(file_path: &Path) -> Option<(std::path::PathBuf, SessionData)> {
     let dir = file_path.parent()?;
 
     let mut backups: Vec<_> = fs::read_dir(dir)

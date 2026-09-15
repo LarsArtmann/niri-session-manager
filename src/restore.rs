@@ -587,10 +587,7 @@ pub async fn apply_window_placement(
 /// (or index). Monitors get renamed or reordered between boots; the saved
 /// workspace survives on *some* output. (True position/EDID matching is not
 /// possible today: niri's IPC does not expose output positions.)
-pub fn resolve_target_output(
-    saved: &WorkspaceInfo,
-    workspaces: &[Workspace],
-) -> Option<String> {
+pub fn resolve_target_output(saved: &WorkspaceInfo, workspaces: &[Workspace]) -> Option<String> {
     let saved_output = saved.output.as_deref().filter(|o| !o.is_empty());
     if let Some(out) = saved_output {
         let output_exists = workspaces.iter().any(|w| w.output.as_deref() == Some(out));
