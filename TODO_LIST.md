@@ -28,9 +28,9 @@
 
 ## Low Impact
 
-| Task | Impact | Effort | Evidence |
-| --- | --- | --- | --- |
-| _(none — the 0.5.1-vs-0.6.0 decision resolved 2026-09-15: cut as **v0.6.0** because `[Unreleased]` carried features, not just fixes; see `CHANGELOG.md` [0.6.0])_ | — | — | — |
+| Task                                                                                                                                                              | Impact | Effort | Evidence |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | ------ | -------- |
+| _(none — the 0.5.1-vs-0.6.0 decision resolved 2026-09-15: cut as **v0.6.0** because `[Unreleased]` carried features, not just fixes; see `CHANGELOG.md` [0.6.0])_ | —      | —      | —        |
 
 ---
 

@@ -10,26 +10,26 @@ Started from the TODO_LIST paste: 5 actionable low-impact items + 2 blocked item
 
 ## a) FULLY DONE
 
-| Work | Evidence |
-| --- | --- |
-| Focus-steal race eliminated: per-spawn focus removed; single **final focus pass** after all spawn tasks join (`SpawnOutcome` carries each task's confirmed id + focused flag) | `spawn_windows`/`spawn_single_window` in `src/restore.rs`; harness test now pins that `FocusWindow` is the *last* recorded action (`src/fake_niri.rs`) |
-| Stale-marker pruning when the session file vanishes: a current-boot marker with no session file is pruned so restore re-runs; unreadable `boot_id` still restores and never prunes | `should_restore_on_boot` in `src/restore.rs` + 2 new tests (`vanishing_session_file_prunes_this_boots_marker`, `unreadable_boot_id_restores_and_leaves_the_marker_alone`) |
-| `--health-check` layout coverage: reports "N window(s), M with captured layout" | `run_health_check` in `src/main.rs:91` |
-| Hardening tests: unknown future keys load; valid session beats corrupt backups; unreadable boot id leaves marker | `src/tests.rs`; suite grew 120 → **124** (+1 ignored benchmark) |
-| CI hardening: test-count guard (`expected=124`, a drop fails CI) + `--dry-run` smoke with no niri asserting exit 0; YAML syntax validated | `.github/workflows/checks.yml`; both steps executed locally with identical results |
-| Full verification loop: suite 5× green, clippy `--all-features` clean, fmt clean, `nix flake check` green, docs-citations green | Session log; per AGENTS.md 5× rule (concurrency-affecting change) |
-| Docs sync: CHANGELOG entries, TODO_LIST third-pass footer, AGENTS.md (flow steps 3–4, test count, CI-guard gotcha, module sizes), FEATURES.md (3 rows), README.md (marker pruning) | Per-file greps confirmed no stale claims |
-| **Release v0.6.0 cut**: CHANGELOG `[Unreleased]` → `[0.6.0] - 2026-09-15` with fresh empty `[Unreleased]`; `Cargo.toml` 0.5.0 → 0.6.0; `Cargo.lock` synced; annotated tag `v0.6.0` on `6ecbb0e` | Pre-tag verification green: fmt, clippy, 124-test suite, `nix build` (derivation `niri-session-manager-0.6.0`), `nix flake check`, docs-citations, `--version` reports 0.6.0 in cargo *and* Nix |
+| Work                                                                                                                                                                                            | Evidence                                                                                                                                                                                        |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Focus-steal race eliminated: per-spawn focus removed; single **final focus pass** after all spawn tasks join (`SpawnOutcome` carries each task's confirmed id + focused flag)                   | `spawn_windows`/`spawn_single_window` in `src/restore.rs`; harness test now pins that `FocusWindow` is the _last_ recorded action (`src/fake_niri.rs`)                                          |
+| Stale-marker pruning when the session file vanishes: a current-boot marker with no session file is pruned so restore re-runs; unreadable `boot_id` still restores and never prunes              | `should_restore_on_boot` in `src/restore.rs` + 2 new tests (`vanishing_session_file_prunes_this_boots_marker`, `unreadable_boot_id_restores_and_leaves_the_marker_alone`)                       |
+| `--health-check` layout coverage: reports "N window(s), M with captured layout"                                                                                                                 | `run_health_check` in `src/main.rs:91`                                                                                                                                                          |
+| Hardening tests: unknown future keys load; valid session beats corrupt backups; unreadable boot id leaves marker                                                                                | `src/tests.rs`; suite grew 120 → **124** (+1 ignored benchmark)                                                                                                                                 |
+| CI hardening: test-count guard (`expected=124`, a drop fails CI) + `--dry-run` smoke with no niri asserting exit 0; YAML syntax validated                                                       | `.github/workflows/checks.yml`; both steps executed locally with identical results                                                                                                              |
+| Full verification loop: suite 5× green, clippy `--all-features` clean, fmt clean, `nix flake check` green, docs-citations green                                                                 | Session log; per AGENTS.md 5× rule (concurrency-affecting change)                                                                                                                               |
+| Docs sync: CHANGELOG entries, TODO_LIST third-pass footer, AGENTS.md (flow steps 3–4, test count, CI-guard gotcha, module sizes), FEATURES.md (3 rows), README.md (marker pruning)              | Per-file greps confirmed no stale claims                                                                                                                                                        |
+| **Release v0.6.0 cut**: CHANGELOG `[Unreleased]` → `[0.6.0] - 2026-09-15` with fresh empty `[Unreleased]`; `Cargo.toml` 0.5.0 → 0.6.0; `Cargo.lock` synced; annotated tag `v0.6.0` on `6ecbb0e` | Pre-tag verification green: fmt, clippy, 124-test suite, `nix build` (derivation `niri-session-manager-0.6.0`), `nix flake check`, docs-citations, `--version` reports 0.6.0 in cargo _and_ Nix |
 
 ## b) PARTIALLY DONE
 
-| Work | Gap |
-| --- | --- |
-| CI test-count guard | Counts only the first `test result:` line (fine today — one test binary); it re-runs `cargo test` as a second full CI pass instead of reusing the prior step's output (~16s + compile minutes wasted) |
-| Health-check layout coverage | New log line has no dedicated test (the two fake-IPC health tests assert pass/fail only, not the reported fields) |
-| TODO_LIST "record the ~16s suite timing budget" sub-item | The CI guard part landed; the recorded timing budget did not — I dropped it silently in the rewrite instead of writing it into AGENTS.md |
-| Release push | `v0.5.0` and `v0.6.0` tags both cut locally, neither pushed — SystemNix still cannot pin (your go-ahead) |
-| Benchmark re-run after the focus change | Not re-run this session (see d/e — this is the biggest verification gap) |
+| Work                                                     | Gap                                                                                                                                                                                                   |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CI test-count guard                                      | Counts only the first `test result:` line (fine today — one test binary); it re-runs `cargo test` as a second full CI pass instead of reusing the prior step's output (~16s + compile minutes wasted) |
+| Health-check layout coverage                             | New log line has no dedicated test (the two fake-IPC health tests assert pass/fail only, not the reported fields)                                                                                     |
+| TODO_LIST "record the ~16s suite timing budget" sub-item | The CI guard part landed; the recorded timing budget did not — I dropped it silently in the rewrite instead of writing it into AGENTS.md                                                              |
+| Release push                                             | `v0.5.0` and `v0.6.0` tags both cut locally, neither pushed — SystemNix still cannot pin (your go-ahead)                                                                                              |
+| Benchmark re-run after the focus change                  | Not re-run this session (see d/e — this is the biggest verification gap)                                                                                                                              |
 
 ## c) NOT STARTED
 
@@ -60,6 +60,7 @@ Nothing is broken — but ranked honestly, worst first:
 ## f) Up to 50 things to get done next (brainstorm, ranked — most below the line are ROADMAP fuel, not commitments)
 
 **Verify/release-critical**
+
 1. Re-run `restore_burst` benchmark post-focus-pass; compare against 100.4 ms/window (see `docs/benchmarks/`).
 2. Push `v0.5.0` + `v0.6.0` tags (needs your go-ahead).
 3. Pin `v0.6.0` in SystemNix after push; verify the consumer build.
@@ -73,7 +74,7 @@ Nothing is broken — but ranked honestly, worst first:
 9. Property test for the boot-gate matrix (boot_id × marker × session-existence).
 10. Audit `--restore --dry-run` combined-flag semantics test (dry-run must win).
 11. Verify import-with-corrupt-archive coverage is complete (`run_import` tests exist; confirm the failure branches).
-12. Benchmark for the *save* path: debounce latency under an event storm (no benchmark exists).
+12. Benchmark for the _save_ path: debounce latency under an event storm (no benchmark exists).
 13. Soak-test playbook doc (`docs/soak-playbook.md`) so the High-Impact soak is executable, not aspirational.
 
 **CI/tooling**
