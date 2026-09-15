@@ -5,6 +5,19 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Window layout capture (session format v5)**: each saved window now records its scrolling-layout slot (`scroll_position`: 1-based `column` + `tile_in_column`) and visible tile size (`tile_width`/`tile_height` in logical pixels), captured from niri-ipc 25.11's `Window.layout` (`SavedWindowLayout::from_niri` in `src/session.rs`). Viewport-relative and Wayland-internal geometry is deliberately dropped. Pre-v5 files still load (the key defaults to absent); `WindowLayoutsChanged` events trigger reactive saves. Restore does not apply the geometry yet — that design waits for a real-hardware soak test.
+- **Exponential retry backoff in the restore loop**: `--retry-delay` is now the base delay; each failed attempt doubles it, capped at 30s (`next_retry_delay` in `src/restore.rs`), mirroring the event-stream reconnect backoff. A `--retry-delay` of 0 still retries immediately.
+
+### Changed
+
+- **All blocking niri IPC now runs on tokio's blocking pool**: `spawn_single_window` and `apply_window_placement` route through `niri_send` (`spawn_blocking`) instead of issuing inline `Socket` I/O — a current-thread runtime no longer serializes every spawn behind one worker.
+- **`src/main.rs` (~3.7k lines) split into focused modules** — `config`, `ipc`, `session`, `terminal`, `restore`, `save`, plus a dedicated `tests` module — as a behavior-frozen changeset: no logic changes; the suite passes unchanged at 118 tests (+1 ignored benchmark), up from 114 via four new tests (retry-backoff units, layout capture end-to-end, v4-file compat, `WindowLayoutsChanged` relevance).
+- **serde_json `float_roundtrip` enabled**: the session format now carries `f64` tile sizes, and the feature guarantees lossless JSON float round-trips (locked in by the property tests).
+
 ## [0.5.0] - 2026-09-14
 
 ### Added

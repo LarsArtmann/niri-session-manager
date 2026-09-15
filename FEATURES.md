@@ -61,12 +61,12 @@
 | `--config-file` override                                                    | 🟢 `FULLY_FUNCTIONAL` | explicit path missing = error (never auto-creates); default path missing = template                                                |
 | Run modes: `--restore`, `--save-only`, `--save-once`                        | 🟢 `FULLY_FUNCTIONAL` | mutually conflicting flags; save-once powers the suspend hook                                                                      |
 | `--health-check`                                                            | 🟢 `FULLY_FUNCTIONAL` | niri reachability + version, boot-gate state, session file age; IPC-tested, fails loudly without niri                              |
-| Session format v4 (descriptive version, legacy aliases)                     | 🟢 `FULLY_FUNCTIONAL` | versions 1–3 load via `#[serde(alias)]`; property tests lock round-trips; see `docs/example-session.json`                          |
+| Session format v5 (descriptive version, legacy aliases)                     | 🟢 `FULLY_FUNCTIONAL` | versions 1–4 load via `#[serde(default)]`/aliases; property tests lock round-trips; see `docs/example-session.json`                |
 | NixOS module (6 tunables + suspend hook)                                    | 🟢 `FULLY_FUNCTIONAL` | `module.nix`: 6 of 7 CLI tunables mirrored (`dryRun` is CLI-only by design) + `saveOnSuspend` `sleep.target` oneshot               |
 | Supply-chain checks (cargo-deny, cargo audit)                               | 🟢 `FULLY_FUNCTIONAL` | `deny.toml` + CI step; audit clean (0 advisories across 140 crates, 2026-09-04)                                                    |
 | Structured logging (tracing, `RUST_LOG`)                                    | 🟢 `FULLY_FUNCTIONAL` | journald-native output with timestamps and levels                                                                                  |
-| Window size / column-width capture                                          | ⚪ `PLANNED`          | unblocked: niri-ipc exposes `Window.layout` geometry since v25.08 (pinned crate 25.11 carries it) — needs session-format v5 design |
+| Window layout capture (scroll slot + tile size, format v5)                  | 🟢 `FULLY_FUNCTIONAL` | `SavedWindowLayout::from_niri` in `src/session.rs`; `WindowLayoutsChanged` triggers saves; restore does not apply geometry yet     |
 
 ---
 
-_Verified against code 2026-09-06 (114 tests + 1 ignored benchmark, all green)._
+_Verified against code 2026-09-15 (118 tests + 1 ignored benchmark, all green)._

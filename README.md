@@ -12,6 +12,7 @@ A session manager for the Niri Wayland compositor that automatically saves and r
 - **Idempotent session restoration** — re-running a restore spawns only what is missing: windows are matched against running instances by workspace first, then capped at `saved − running` per app, so you never get duplicates
 - **Per-app spawn serialization** — two windows of the same app are spawned one after another, eliminating the workspace-swap race
 - **Focus restoration** — the window that was focused when the session was saved gets focus back
+- **Window layout capture** — each saved window records its scrolling-layout slot (column + tile) and visible tile size (session format v5), ready for geometry-aware restore work
 - **Terminal state recovery** — restores running commands inside terminals (e.g. `btop`, `nvim`, `ssh`) via `/proc` PID resolution, including the working directory
 - **Backup management** with configurable retention and corrupt-file protection
 - **Corrupted session recovery** — automatically falls back to the most recent valid `.bak` if `session.json` is corrupt
@@ -167,7 +168,7 @@ The systemd user service is automatically configured to:
 - **Backups**: `$XDG_DATA_HOME/niri-session-manager/session-{timestamp}.bak`
 - **Configuration**: `$XDG_CONFIG_HOME/niri-session-manager/config.toml`
 
-The session format is versioned (currently v4; the version is descriptive, not enforced). Legacy formats are auto-detected via serde aliases and migrated on the next save. See `docs/example-session.json`.
+The session format is versioned (currently v5; the version is descriptive, not enforced). Each window additionally carries its on-screen geometry (`layout`: scrolling-layout slot + tile size) since v5. Legacy formats are auto-detected and load unchanged, migrating on the next save. See `docs/example-session.json`.
 
 ## Development
 
