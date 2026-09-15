@@ -437,7 +437,7 @@ pub async fn spawn_windows(
     let workspaces = get_niri_workspaces().await?;
     let limiter = SpawnLimiter::new(MAX_SPAWN_CONCURRENCY);
 
-    let mut handles: Vec<JoinHandle<Result<usize>>> = Vec::new();
+    let mut handles: Vec<JoinHandle<Result<(usize, Option<(u64, String)>)>>> = Vec::new();
     for saved_window in to_spawn {
         let command = build_spawn_command(
             &saved_window.app_id,
@@ -450,40 +450,60 @@ pub async fn spawn_windows(
         let spawn_timeout = config.spawn_timeout;
         handles.push(spawn(async move {
             let _permits = limiter.acquire(&saved_window.app_id).await?;
-            spawn_single_window(
+            let confirmed = spawn_single_window(
                 &saved_window,
                 &command,
                 spawn_timeout,
                 &claimed,
                 &workspaces,
             )
-            .await
+            .await;
+            let focused = confirmed
+                .as_ref()
+                .ok()
+                .and_then(|opt| *opt)
+                .filter(|_| saved_window.is_focused)
+                .map(|id| (id, saved_window.app_id.clone()));
+            confirmed.map(|opt| (usize::from(opt.is_some()), focused))
         }));
     }
 
     let mut spawned = 0usize;
+    let mut final_focus: Option<(u64, String)> = None;
     for handle in handles {
-        let confirmed = handle
+        let (confirmed, focused) = handle
             .await
             .context("Window spawn task panicked")?
             .unwrap_or_else(|e| {
                 warn!("Window spawn failed: {e}");
-                0
+                (0, None)
             });
         spawned = spawned.saturating_add(confirmed);
+        if focused.is_some() {
+            final_focus = focused;
+        }
+    }
+
+    // Final focus pass: spawning races focus (a window that appears after the
+    // saved-focused one can steal it), so focus is applied once, after every
+    // spawn has settled.
+    if let Some((win_id, app_id)) = final_focus {
+        info!("All spawns settled; applying the final focus pass");
+        focus_window(win_id, &app_id).await;
     }
     Ok(spawned)
 }
 
-/// Spawns one window and waits for it to appear, then applies placement and
-/// focus. Returns 1 if the window was confirmed visible, 0 otherwise.
+/// Spawns one window and waits for it to appear, then applies placement.
+/// Returns the confirmed niri window id, or `None` when the window never
+/// became visible.
 pub async fn spawn_single_window(
     saved_window: &SavedWindow,
     command: &[String],
     spawn_timeout: u64,
     claimed: &Mutex<HashSet<u64>>,
     workspaces: &[Workspace],
-) -> Result<usize> {
+) -> Result<Option<u64>> {
     let response = niri_send(Request::Action(Action::Spawn {
         command: command.to_vec(),
     }))
@@ -494,7 +514,7 @@ pub async fn spawn_single_window(
             "Failed to spawn app: {} using command: {:?}",
             saved_window.app_id, command
         );
-        return Ok(0);
+        return Ok(None);
     }
 
     let Some(win_id) = wait_for_new_window(saved_window, spawn_timeout, claimed).await else {
@@ -502,16 +522,12 @@ pub async fn spawn_single_window(
             "Window for app {} did not appear within {}s (spawn timeout)",
             saved_window.app_id, spawn_timeout
         );
-        return Ok(0);
+        return Ok(None);
     };
 
     apply_window_placement(win_id, saved_window, workspaces).await;
 
-    if saved_window.is_focused {
-        focus_window(win_id, &saved_window.app_id).await;
-    }
-
-    Ok(1)
+    Ok(Some(win_id))
 }
 
 /// Polls niri for a newly-opened window of the saved app that no other spawn
