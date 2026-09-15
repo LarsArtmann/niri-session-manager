@@ -46,7 +46,7 @@ nix flake check       # flake + module + formatting
 ## Single source of truth
 
 - The version lives **only** in `Cargo.toml`; `default.nix` reads it.
-- Terminal CLI profiles live **only** in `TerminalProfile` (`src/main.rs`);
+- Terminal CLI profiles live **only** in `TerminalProfile` (`src/terminal.rs`);
   they are verified against the terminals' official docs.
 
 ## Releases

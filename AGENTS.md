@@ -10,7 +10,7 @@ Context for AI sessions working on this repository.
 
 ```bash
 cargo build                      # build
-cargo test                       # full suite: unit + fake-IPC integration tests (114 + 1 ignored benchmark)
+cargo test                       # full suite: unit + fake-IPC integration tests (118 + 1 ignored benchmark)
 cargo clippy --all-features      # lint (CI runs this exact form; pedantic+nursery denies enforced)
 cargo fmt --all -- --check       # format check (CI enforces)
 nix build                        # build Nix package
@@ -32,15 +32,22 @@ cargo test restore_burst --release -- --ignored --nocapture   # benchmark (see d
 - **Verify-after-write, always.** After scripted/bulk edits, grep-assert the expected marker in the same command. Edits have silently vanished here (parallel writes racing the auto-commit daemon).
 - **Never mutate one file from two tools in flight.** Serialize file writes; re-read after any "file modified" rejection.
 - **Never pipe test output through grep in background shells** — write to a file and tail it, or you debug blind.
-- Stale rust-analyzer diagnostics (e.g. the duplicate-attribute/`shell_escape_empty` warnings in `src/main.rs`) are cache lies; trust `cargo build`, not the LSP cache.
+- Stale rust-analyzer diagnostics (e.g. the duplicate-attribute/`shell_escape_empty` warnings in the Rust sources) are cache lies; trust `cargo build`, not the LSP cache.
 
 ## Architecture
 
-Three source files (the first two are the real code, the third is test infrastructure):
+Behavior-frozen module split (2026-09-15; formerly one ~3.7k-line `main.rs`):
 
-- `src/main.rs` (~3600 lines): niri IPC, session model, idempotent restore planning, reactive save loop, config, backups, export/import, health check, CLI, unit tests.
-- `src/proc.rs` (~435 lines): `/proc` process-tree walking for terminal state recovery. Linux-only code is gated with `#[cfg(target_os = "linux")]` with a portable no-op fallback for `resolve_child_process`. Everything takes an injectable `base: &Path` so tests can mount fake proc trees.
-- `src/fake_niri.rs` (~1160 lines, `#[cfg(test)]` only): an in-process fake niri IPC server (real Unix socket, real protocol) — Windows/Workspaces/Version replies, Spawn/Move/Focus recording with failure injection and concurrency metering (global AND per-app in-flight tracking), event-stream refusal injection (`refuse_event_streams`), plus an EventStream mode with queued events. Tests take the process-global `IPC_ENV_LOCK` via `FakeNiri::env()` because `Socket::connect()` reads `$NIRI_SOCKET` from the environment; `FakeNiri::close()` must be called before a test ends if it spawned the reactive save loop (tokio's runtime drop waits for `spawn_blocking` readers).
+- `src/main.rs` (~185 lines): module wiring, shutdown-signal handling, `run_health_check`, `run_service_loop` (mode dispatch), `main`.
+- `src/ipc.rs` (~40 lines): async niri IPC — `niri_send` (every request runs on `spawn_blocking`), `get_niri_windows`/`get_niri_workspaces`.
+- `src/session.rs` (~570 lines): session model (`SavedWindow`, `WorkspaceInfo`, `SavedWindowLayout`, `SessionData`), capture from niri, atomic writes, backups, export/import.
+- `src/terminal.rs` (~200 lines): restore-command composition, the five terminal profiles, `/proc` terminal-state resolution (bridge to `proc.rs`).
+- `src/config.rs` (~280 lines): CLI `Config` (clap) + TOML `AppConfig` + validation + embedded config template.
+- `src/restore.rs` (~650 lines): boot gate, idempotent planning (`plan_spawns`), `SpawnLimiter`, spawning, placement, focus, retry backoff, `run_boot_restore`.
+- `src/save.rs` (~315 lines): reactive save loop (event stream + debounce + polling fallback + reconnect backoff), `EventConnection`, graceful shutdown with final save.
+- `src/proc.rs` (~440 lines): `/proc` process-tree walking for terminal state recovery. Linux-only code is gated with `#[cfg(target_os = "linux")]` with a portable no-op fallback for `resolve_child_process`. Everything takes an injectable `base: &Path` so tests can mount fake proc trees.
+- `src/fake_niri.rs` (~1220 lines, `#[cfg(test)]` only): an in-process fake niri IPC server (real Unix socket, real protocol) — Windows/Workspaces/Version replies, Spawn/Move/Focus recording with failure injection and concurrency metering (global AND per-app in-flight tracking), event-stream refusal injection (`refuse_event_streams`), plus an EventStream mode with queued events. Tests take the process-global `IPC_ENV_LOCK` via `FakeNiri::env()` because `Socket::connect()` reads `$NIRI_SOCKET` from the environment; `FakeNiri::close()` must be called before a test ends if it spawned the reactive save loop (tokio's runtime drop waits for `spawn_blocking` readers).
+- `src/tests.rs` (~1590 lines, `#[cfg(test)]` only): the unit-test module (moved out of `main.rs` in the split); imports the code under test via glob per module.
 
 ### Runtime flow
 
@@ -52,6 +59,7 @@ Three source files (the first two are the real code, the third is test infrastru
 ### Invariants that past bugs paid for (do not regress)
 
 - **All session-file writes go through `atomic_write`.** Temp file + fsync of contents + rename + **fsync of the parent directory** — the last one is what makes the rename survive power loss.
+- **Blocking niri IPC happens only inside `niri_send` (`spawn_blocking`).** Inline `Socket` I/O on the runtime serialized every spawn behind one worker on current-thread runtimes (paid for in tests); keep socket calls behind the async wrappers.
 - **Restore completes before the save loop starts.** Concurrent save during restore snapshots partial state.
 - **Restore failure is non-fatal.** Errors are logged, never returned from `main` — under `Restart=always`, a failing restore crash-loops the service.
 - **`--dry-run` never spawns and never writes** — no session file, no marker (regression-tested twice over).
@@ -63,8 +71,10 @@ Three source files (the first two are the real code, the third is test infrastru
 
 ### Session format compatibility
 
-- `SessionData` is a `#[serde(untagged)]` enum: `Versioned` (current, `SESSION_FORMAT_VERSION = 4`) or legacy plain array. The version is **descriptive, not enforced** — files from versions 1–3 load via `#[serde(alias)]` and migrate on next save. Q4 in ROADMAP is resolved; see `docs/example-session.json`.
-- When changing serialized keys, always add aliases so old `session.json` files still load, and extend the property tests (round-trip + legacy-alias identity).
+- `SessionData` is a `#[serde(untagged)]` enum: `Versioned` (current, `SESSION_FORMAT_VERSION = 5`) or legacy plain array. The version is **descriptive, not enforced** — files from versions 1–4 load (newer keys deserialize to defaults) and migrate on next save. Q4 in ROADMAP is resolved; see `docs/example-session.json`.
+- v5 adds per-window `layout` (`SavedWindowLayout`: scrolling-layout slot + tile size, via `SavedWindowLayout::from_niri`). Restore does not apply geometry yet — that design waits for the real-hardware soak test.
+- serde_json has the `float_roundtrip` feature enabled (Cargo.toml): the format carries `f64` tile sizes and the default float parser is off-by-1-ULP lossy — the property tests catch its removal. Do not drop the feature.
+- When changing serialized keys, always add aliases/defaults so old `session.json` files still load, and extend the property tests (round-trip + legacy-alias identity).
 
 ### Terminal state recovery
 
@@ -72,16 +82,16 @@ Three source files (the first two are the real code, the third is test infrastru
 
 ## Config surface
 
-- CLI (`Config`, clap derive in `src/main.rs`): tunables `--save-interval/--max-backup-count/--spawn-timeout/--retry-attempts/--retry-delay/--max-restore-windows`; behaviors `--dry-run`, `--restore`, `--save-only`, `--save-once` (suspend hook), `--health-check`, `--export <DIR>`, `--import <DIR>`, `--config-file <PATH>` (explicit path missing = error; default path missing = template written). Validation in `Config::validate`.
+- CLI (`Config`, clap derive in `src/config.rs`): tunables `--save-interval/--max-backup-count/--spawn-timeout/--retry-attempts/--retry-delay/--max-restore-windows`; behaviors `--dry-run`, `--restore`, `--save-only`, `--save-once` (suspend hook), `--health-check`, `--export <DIR>`, `--import <DIR>`, `--config-file <PATH>` (explicit path missing = error; default path missing = template written). Validation in `Config::validate`. `--retry-delay` is the base of an exponential backoff (doubles per attempt, capped at 30s).
 - TOML: `AppConfig` at `$XDG_CONFIG_HOME/niri-session-manager/config.toml`. Invalid TOML warns and falls back to defaults; a missing default file is created from the embedded template (`DEFAULT_APP_CONFIG_TOML`).
 - NixOS module (`module.nix`): mirrors **6 of 7** tunables (`maxRestoreWindows` included; `dryRun` is CLI-only by design) + `saveOnSuspend` (default true) which installs a `sleep.target`-ordered oneshot running `--save-once`. When adding a CLI flag, update `module.nix` and the README together.
 
 ## Testing
 
-- 114 tests + 1 `#[ignore]`d benchmark. Unit tests live in-file; IPC integration tests live in `src/fake_niri.rs` against the fake server.
+- 118 tests + 1 `#[ignore]`d benchmark. Unit tests live in `src/tests.rs`; IPC integration tests live in `src/fake_niri.rs` against the fake server.
 - Never test against a live niri session; the fake server covers restore, save, shutdown (graceful + final save), idempotency, focus, retries, concurrency (global cap + per-app serialization), health, the event stream, the polling fallback with recovery, and `--save-only` end-to-end (see `layout_event_triggers_debounced_save`, `polling_fallback_saves_when_event_stream_refused_then_recovers`, `save_only_skips_boot_restore_and_runs_the_save_loop`).
 - Tests that touch `$NIRI_SOCKET` MUST hold `IPC_ENV_LOCK` (`FakeNiri::env()` / `FakeNiri::env_without_socket()`); parallel tests race on the environment otherwise.
-- `#[tokio::test]` defaults to a current_thread runtime; `spawn_single_window` blocks its worker on the synchronous IPC send, so tests that need real spawn overlap (concurrency metering) must use `#[tokio::test(flavor = "multi_thread", worker_threads = 2)]` — otherwise spawns serialize and overlap assertions go vacuous.
+- `#[tokio::test]` defaults to a current_thread runtime. All niri IPC runs behind `niri_send` (`spawn_blocking`), so spawns no longer serialize the runtime; the concurrency-metering tests still use `#[tokio::test(flavor = "multi_thread", worker_threads = 2)]` so runtime work and blocking-pool work genuinely overlap.
 - CI runs `cargo clippy --all-features` WITHOUT `--tests`: lint denies (unwrap_used etc.) apply to non-test code only, which is why harness tests may use `unwrap`/`expect`.
 - After timeout-joining a `JoinHandle` via `&mut`, do NOT await the owned handle again (double-poll panics: "JoinHandle polled after completion") — await only in the elapsed/abort arm.
 
@@ -95,6 +105,5 @@ Three source files (the first two are the real code, the third is test infrastru
 
 - Terminal flag profiles are doc-verified but not exercised against real terminal binaries; daily-driver terminals deserve must-not-regress status (ROADMAP Q3 open).
 - If shutdown grace expires (save task wedged >5s), the abort path skips the event-connection cleanup, so the parked reader leaks until process exit — acceptable last-resort behavior, the graceful path is the norm.
-- `spawn_single_window` issues blocking `Socket` I/O on the async runtime (one worker per in-flight spawn); fine on the multi-thread production runtime, worth moving to `spawn_blocking` if spawn paths grow.
 - vulnix (buildflow) flags build-time stdenv toolchain advisories (binutils/bison/zlib — 20 derivations); the shipped runtime closure is 7 store paths and clean, so these are accepted, and the scan needs >2 min so buildflow's default timeout kills it first.
 - jscpd flags the deliberate test-fixture similarity in proc.rs/fake_niri.rs; in-code rationale comments mark the clones (each test's fixture is its input data) — do not extract.
