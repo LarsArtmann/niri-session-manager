@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 54aeaafe0ebe9055b7a08c5be7420854a43a4c4635d8a40bfa93f2a87a045c18 # shrinks to win = SavedWindow { id: 0, app_id: "a", workspace: WorkspaceInfo { idx: None, name: None, output: None }, is_focused: false, pid: None, terminal_state: None, layout: Some(SavedWindowLayout { scroll_position: None, tile_width: 0.0, tile_height: 1801.8231164676986 }) }
+cc 5797048267b27a604819e97d07475caa4b6e7e1dd33e683594dc1d9413e1e4cd # shrinks to windows = [SavedWindow { id: 0, app_id: "a", workspace: WorkspaceInfo { idx: None, name: None, output: None }, is_focused: false, pid: None, terminal_state: None, layout: Some(SavedWindowLayout { scroll_position: None, tile_width: 2880.3958236915078, tile_height: 0.0 }) }]

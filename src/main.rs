@@ -143,6 +143,9 @@ struct SavedWindow {
     pid: Option<u32>,
     #[serde(default)]
     terminal_state: Option<TerminalState>,
+    /// Geometry at save time (format v5); `None` for pre-v5 files.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    layout: Option<SavedWindowLayout>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -167,13 +170,56 @@ struct TerminalState {
     child_cwd: Option<String>,
 }
 
+/// A window's slot in its workspace's scrolling layout.
+///
+/// Both indices are 1-based, matching niri's own reporting; they travel as a
+/// pair because one without the other is meaningless.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct ScrollPosition {
+    column: u64,
+    tile_in_column: u64,
+}
+
+/// The on-screen geometry a window had when the session was saved
+/// (session format v5), captured from niri's `WindowLayout`.
+///
+/// Only the durable parts are kept: the scrolling-layout slot and the visible
+/// tile size. Viewport-relative positions and Wayland-internal sizes change
+/// with the monitor setup or carry no restore meaning, so they are dropped.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+struct SavedWindowLayout {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    scroll_position: Option<ScrollPosition>,
+    /// Visible tile size in logical pixels, including borders.
+    tile_width: f64,
+    tile_height: f64,
+}
+
+impl SavedWindowLayout {
+    /// Maps niri's `WindowLayout` onto the subset we keep in the session file.
+    fn from_niri(layout: &niri_ipc::WindowLayout) -> Self {
+        Self {
+            scroll_position: layout
+                .pos_in_scrolling_layout
+                .and_then(|(column, tile_in_column)| {
+                    Some(ScrollPosition {
+                        column: u64::try_from(column).ok()?,
+                        tile_in_column: u64::try_from(tile_in_column).ok()?,
+                    })
+                }),
+            tile_width: layout.tile_size.0,
+            tile_height: layout.tile_size.1,
+        }
+    }
+}
+
 /// Session file format version.
 ///
-/// 4 = current key names (`idx`/`name`/`output`, `child_command` as args
-/// array). Files from versions 1-3 still load via `#[serde(alias)]`, so
-/// this constant is descriptive, not enforced: it stamps what a file was
-/// written with; nothing is rejected based on it.
-const SESSION_FORMAT_VERSION: u32 = 4;
+/// 5 = current: each window carries `layout` (scrolling-layout slot + tile
+/// size). Files from versions 1-4 still load (missing keys deserialize to
+/// their defaults), so this constant is descriptive, not enforced: it stamps
+/// what a file was written with; nothing is rejected based on it.
+const SESSION_FORMAT_VERSION: u32 = 5;
 const MAX_SPAWN_CONCURRENCY: usize = 5;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -730,6 +776,7 @@ async fn capture_session_json(app_config: &AppConfig) -> Result<String> {
             is_focused: window.is_focused,
             pid,
             terminal_state,
+            layout: Some(SavedWindowLayout::from_niri(&window.layout)),
         });
     }
 
@@ -2166,6 +2213,7 @@ mod tests {
             is_focused: false,
             pid,
             terminal_state: None,
+            layout: None,
         };
         let windows = vec![
             win(1, "com.mitchellh.ghostty", Some(42)),
@@ -2192,6 +2240,7 @@ mod tests {
             is_focused: false,
             pid: None,
             terminal_state: None,
+            layout: None,
         };
         let windows = vec![win(1, "xdg-desktop-portal"), win(2, "firefox")];
         let out = filter_skipped_windows(windows, &["xdg-desktop-portal".to_string()]);
@@ -2526,6 +2575,7 @@ mod tests {
             is_focused: false,
             pid: None,
             terminal_state: None,
+            layout: None,
         };
 
         let cmd = build_spawn_command("com.mitchellh.ghostty", &window, &mappings);
@@ -2548,6 +2598,7 @@ mod tests {
                 child_command: Some(ChildCommand::Args(vec!["btop".to_string()])),
                 child_cwd: Some("/home/user".to_string()),
             }),
+            layout: None,
         };
 
         let cmd = build_spawn_command("kitty", &window, &mappings);
@@ -2701,11 +2752,20 @@ mod tests {
                     child_command: Some(ChildCommand::Args(vec!["btop".to_string()])),
                     child_cwd: Some("/home/user".to_string()),
                 }),
+                layout: Some(SavedWindowLayout {
+                    scroll_position: Some(ScrollPosition {
+                        column: 2,
+                        tile_in_column: 1,
+                    }),
+                    tile_width: 960.0,
+                    tile_height: 540.0,
+                }),
             }],
         };
         let json = serde_json::to_string_pretty(&session).unwrap();
-        assert!(json.contains("\"version\": 4"));
+        assert!(json.contains("\"version\": 5"));
         assert!(json.contains("\"windows\""));
+        assert!(json.contains("\"layout\""));
         let parsed: SessionData = serde_json::from_str(&json).unwrap();
         assert!(!parsed.is_legacy());
     }
@@ -2923,6 +2983,7 @@ max_walk_depth = 15
             is_focused: false,
             pid: None,
             terminal_state: None,
+            layout: None,
         }
     }
 
@@ -3330,6 +3391,7 @@ max_walk_depth = 15
             is_focused: false,
             pid,
             terminal_state: None,
+            layout: None,
         };
         let windows = vec![
             win(1, "app-one", Some(42)),
@@ -3529,6 +3591,25 @@ max_walk_depth = 15
             })
     }
 
+    fn arb_window_layout() -> impl Strategy<Value = Option<SavedWindowLayout>> {
+        (
+            prop::option::of((1u64..=64u64, 1u64..=64u64)),
+            0.0f64..=4096.0,
+            0.0f64..=4096.0,
+            prop::option::of(Just(())),
+        )
+            .prop_map(|(scroll_pos, tile_width, tile_height, present)| {
+                present.map(|()| SavedWindowLayout {
+                    scroll_position: scroll_pos.map(|(column, tile_in_column)| ScrollPosition {
+                        column,
+                        tile_in_column,
+                    }),
+                    tile_width,
+                    tile_height,
+                })
+            })
+    }
+
     fn arb_saved_window() -> impl Strategy<Value = SavedWindow> {
         (
             any::<u64>(),
@@ -3539,15 +3620,19 @@ max_walk_depth = 15
             any::<bool>(),
             prop::option::of(any::<u32>()),
             prop::option::of(arb_terminal_state()),
+            arb_window_layout(),
         )
             .prop_map(
-                |(id, app_id, idx, name, output, is_focused, pid, terminal_state)| SavedWindow {
-                    id,
-                    app_id,
-                    workspace: WorkspaceInfo { idx, name, output },
-                    is_focused,
-                    pid,
-                    terminal_state,
+                |(id, app_id, idx, name, output, is_focused, pid, terminal_state, layout)| {
+                    SavedWindow {
+                        id,
+                        app_id,
+                        workspace: WorkspaceInfo { idx, name, output },
+                        is_focused,
+                        pid,
+                        terminal_state,
+                        layout,
+                    }
                 },
             )
     }
@@ -3599,6 +3684,41 @@ max_walk_depth = 15
         fn app_config_parse_never_panics_on_arbitrary_input(input in ".*") {
             let _ = toml::from_str::<AppConfig>(&input);
         }
+    }
+
+    #[test]
+    fn v4_session_without_layout_still_loads_with_layout_none() {
+        let v4 = r#"{"version":4,"windows":[{"id":1,"app_id":"firefox","is_focused":true,"idx":2,"name":"web","output":"DP-1","pid":42}]}"#;
+        let parsed: SessionData = serde_json::from_str(v4).unwrap();
+        assert!(!parsed.is_legacy());
+        let windows = parsed.into_windows();
+        assert_eq!(windows.len(), 1);
+        assert_eq!(windows[0].id, 1);
+        assert_eq!(windows[0].layout, None, "pre-v5 files carry no geometry");
+    }
+
+    #[test]
+    fn layout_relevant_covers_geometry_changes() {
+        let layout_event = niri_ipc::Event::WindowLayoutsChanged {
+            changes: vec![(
+                1,
+                niri_ipc::WindowLayout {
+                    pos_in_scrolling_layout: Some((2, 1)),
+                    tile_size: (960.0, 540.0),
+                    window_size: (950, 530),
+                    tile_pos_in_workspace_view: Some((10.0, 5.0)),
+                    window_offset_in_tile: (5.0, 5.0),
+                },
+            )],
+        };
+        assert!(layout_relevant(&layout_event));
+        let keyboard_event = niri_ipc::Event::KeyboardLayoutsChanged {
+            keyboard_layouts: niri_ipc::KeyboardLayouts {
+                names: vec!["us".to_string()],
+                current_idx: 0,
+            },
+        };
+        assert!(!layout_relevant(&keyboard_event));
     }
 
     #[test]

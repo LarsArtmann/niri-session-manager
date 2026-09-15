@@ -404,6 +404,25 @@ pub fn fake_window(id: u64, app_id: &str) -> Window {
     }
 }
 
+/// Gives a fake window a scrolling-layout slot and tile size, as niri
+/// reports for tiled windows.
+pub fn with_layout(
+    mut window: Window,
+    column: usize,
+    tile: usize,
+    width: f64,
+    height: f64,
+) -> Window {
+    window.layout = WindowLayout {
+        pos_in_scrolling_layout: Some((column, tile)),
+        tile_size: (width, height),
+        window_size: (width as i32, height as i32),
+        tile_pos_in_workspace_view: None,
+        window_offset_in_tile: (0.0, 0.0),
+    };
+    window
+}
+
 pub fn niri_workspace(id: u64, idx: u8, name: Option<&str>, output: &str) -> Workspace {
     Workspace {
         id,
@@ -429,6 +448,7 @@ fn saved_win(id: u64, app: &str, name: &str, idx: u8, focused: bool) -> crate::S
         is_focused: focused,
         pid: None,
         terminal_state: None,
+        layout: None,
     }
 }
 
@@ -794,6 +814,37 @@ async fn layout_event_triggers_debounced_save() {
         Ok(Err(e)) => panic!("reactive save task failed: {e}"),
         Err(_) => panic!("reactive save task must stop promptly on shutdown"),
     }
+    niri.close();
+}
+
+// --- M29: window layout capture (session format v5) ---
+
+#[tokio::test]
+async fn capture_records_window_layout_in_the_session_file() {
+    let niri = FakeNiri::start();
+    let _env = niri.env();
+    niri.set_windows(vec![with_layout(
+        fake_window(1, "firefox"),
+        2,
+        1,
+        960.0,
+        540.0,
+    )]);
+    niri.set_workspaces(vec![niri_workspace(1, 1, Some("dev"), "DP-1")]);
+
+    let json = crate::capture_session_json(&AppConfig::default())
+        .await
+        .unwrap();
+    let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(
+        value["windows"][0]["layout"].clone(),
+        serde_json::json!({
+            "scroll_position": { "column": 2, "tile_in_column": 1 },
+            "tile_width": 960.0,
+            "tile_height": 540.0
+        })
+    );
+
     niri.close();
 }
 
