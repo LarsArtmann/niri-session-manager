@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- Nothing yet.
+- **First real CI execution (2026-09-15)**: the `Checks` workflow ran end-to-end on GitHub's runner for the first time (workflow_dispatch, run `34990898129`, green at `4256880` in 5m27s) — build, test-count assertion, clippy, fmt, dry-run smoke, nix, cargo-deny, and docs-citations all executed remotely; all prior CI evidence was local parity because the fork had Actions disabled.
 
 ### Changed
 
