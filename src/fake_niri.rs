@@ -709,6 +709,14 @@ async fn focus_is_restored_for_the_saved_focused_window() {
         Some("chromium"),
         "the saved focused window (chromium) gets focus"
     );
+    // The final focus pass runs after every spawn task has joined, so no
+    // placement action can follow it (a later-arriving window would
+    // otherwise be able to steal focus back).
+    let last = niri.actions().last().cloned();
+    assert!(
+        matches!(last, Some(RecordedAction::FocusWindow { .. })),
+        "focus must be the final action: {last:?}"
+    );
 }
 
 // --- M3 (completion): shutdown performs the final save ---

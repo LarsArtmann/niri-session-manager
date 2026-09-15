@@ -424,6 +424,15 @@ pub async fn restore_session_internal(
     Ok(RestoreOutcome::Restored { spawned })
 }
 
+/// What one spawn task contributed: whether the window became visible, and
+/// — if it is the session's saved-focused window — the confirmed id to focus
+/// in the final pass once every spawn has settled.
+#[derive(Default)]
+struct SpawnOutcome {
+    confirmed: usize,
+    focused: Option<(u64, String)>,
+}
+
 /// Spawns the planned windows (concurrency-limited) and returns how many
 /// were confirmed visible in niri.
 pub async fn spawn_windows(
@@ -437,7 +446,7 @@ pub async fn spawn_windows(
     let workspaces = get_niri_workspaces().await?;
     let limiter = SpawnLimiter::new(MAX_SPAWN_CONCURRENCY);
 
-    let mut handles: Vec<JoinHandle<Result<(usize, Option<(u64, String)>)>>> = Vec::new();
+    let mut handles: Vec<JoinHandle<Result<SpawnOutcome>>> = Vec::new();
     for saved_window in to_spawn {
         let command = build_spawn_command(
             &saved_window.app_id,
@@ -450,37 +459,43 @@ pub async fn spawn_windows(
         let spawn_timeout = config.spawn_timeout;
         handles.push(spawn(async move {
             let _permits = limiter.acquire(&saved_window.app_id).await?;
-            let confirmed = spawn_single_window(
+            match spawn_single_window(
                 &saved_window,
                 &command,
                 spawn_timeout,
                 &claimed,
                 &workspaces,
             )
-            .await;
-            let focused = confirmed
-                .as_ref()
-                .ok()
-                .and_then(|opt| *opt)
-                .filter(|_| saved_window.is_focused)
-                .map(|id| (id, saved_window.app_id.clone()));
-            confirmed.map(|opt| (usize::from(opt.is_some()), focused))
+            .await
+            {
+                Ok(Some(win_id)) => {
+                    let focused = saved_window
+                        .is_focused
+                        .then(|| (win_id, saved_window.app_id.clone()));
+                    Ok(SpawnOutcome {
+                        confirmed: 1,
+                        focused,
+                    })
+                }
+                Ok(None) => Ok(SpawnOutcome::default()),
+                Err(e) => Err(e),
+            }
         }));
     }
 
     let mut spawned = 0usize;
     let mut final_focus: Option<(u64, String)> = None;
     for handle in handles {
-        let (confirmed, focused) = handle
+        let outcome = handle
             .await
             .context("Window spawn task panicked")?
             .unwrap_or_else(|e| {
                 warn!("Window spawn failed: {e}");
-                (0, None)
+                SpawnOutcome::default()
             });
-        spawned = spawned.saturating_add(confirmed);
-        if focused.is_some() {
-            final_focus = focused;
+        spawned = spawned.saturating_add(outcome.confirmed);
+        if outcome.focused.is_some() {
+            final_focus = outcome.focused;
         }
     }
 
