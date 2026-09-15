@@ -10,6 +10,20 @@
 //! [`FakeNiri::env`]) for the duration of its run so parallel tests cannot
 //! race on the variable.
 
+// Deliberate lint exemption (see AGENTS.md "Testing"): this test-only harness
+// relies on assertion-style unwrap/expect/indexing/panics; the production-code
+// denies do not apply here.
+#![allow(
+    clippy::pedantic,
+    clippy::nursery,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic,
+    clippy::arithmetic_side_effects,
+    clippy::as_conversions
+)]
+
 use crate::config::{AppConfig, Config};
 use crate::restore::{
     get_restore_marker_path, restore_session, run_boot_restore, should_restore_on_boot,
