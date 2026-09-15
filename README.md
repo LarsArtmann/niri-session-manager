@@ -31,7 +31,7 @@ A session manager for the Niri Wayland compositor that automatically saves and r
 
 ### Behavior Notes
 
-- **One restore per boot.** Restore is gated by a boot id (`/proc/sys/kernel/random/boot_id`) plus a `restore-marker` file next to `session.json`. Reboots always restore; restarting the service within the same boot does not re-spawn windows. Stale markers from previous boots are pruned automatically.
+- **One restore per boot.** Restore is gated by a boot id (`/proc/sys/kernel/random/boot_id`) plus a `restore-marker` file next to `session.json`. Reboots always restore; restarting the service within the same boot does not re-spawn windows. Stale markers are pruned automatically — both markers from previous boots and a marker whose session file has vanished in the meantime.
 - **Dry-run changes nothing.** `--dry-run` prints what would be restored — it never spawns windows, never writes `session.json`, and never writes the restore marker.
 - **Retries are within one restore.** `--retry-attempts` controls how often a failing restore retries before giving up (non-fatally); it does not re-attempt across service restarts within the same boot.
 - **Restore is idempotent.** When M of N saved windows for an app are already running, restore matches them by workspace (name first, then index) and spawns at most `N − M` — a partial restore resumes instead of duplicating. Single-instance apps stay skipped while any instance runs.
