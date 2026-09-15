@@ -174,18 +174,23 @@ pub fn load_app_config(explicit_path: Option<&Path>) -> Result<AppConfig> {
 // user-facing switch, which is exactly what a CLI struct is for.
 #[allow(clippy::struct_excessive_bools)]
 pub struct Config {
+    /// Seconds between polling-fallback saves when the niri event stream is down
     #[arg(long, default_value = "15")]
     pub save_interval: u64,
 
+    /// How many timestamped session backups to keep before pruning the oldest
     #[arg(long, default_value = "5")]
     pub max_backup_count: usize,
 
+    /// Seconds to wait for a spawned window to appear before the spawn counts as failed
     #[arg(long, default_value = "5")]
     pub spawn_timeout: u64,
 
+    /// Restore attempts per window before giving up (retries happen within one restore)
     #[arg(long, default_value = "3")]
     pub retry_attempts: u32,
 
+    /// Base delay in seconds between restore retries; doubles per attempt, capped at 30 (0 retries immediately)
     #[arg(long, default_value = "2")]
     pub retry_delay: u64,
 

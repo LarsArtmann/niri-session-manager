@@ -620,6 +620,36 @@ async fn restore_retry_loop_recovers_from_injected_ipc_failure() {
 }
 
 #[tokio::test]
+async fn zero_retry_delay_retries_immediately_after_a_failed_spawn() {
+    let niri = FakeNiri::start();
+    let _env = niri.env();
+    niri.fail_next_windows(1);
+    niri.set_workspaces(vec![niri_workspace(1, 1, Some("dev"), "DP-1")]);
+
+    let session = niri.temp_dir().join("session.json");
+    save_session_file(&session, &[saved_win(1, "firefox", "dev", 1, false)]);
+
+    let mut config = ipc_config();
+    config.retry_delay = 0;
+
+    let started = std::time::Instant::now();
+    let outcome = restore_session(&session, &config, &AppConfig::default())
+        .await
+        .unwrap();
+
+    assert_eq!(
+        outcome,
+        RestoreOutcome::Restored { spawned: 1 },
+        "the immediate retry succeeds with a zero base delay"
+    );
+    assert_eq!(niri.spawn_commands().len(), 1);
+    assert!(
+        started.elapsed() < Duration::from_millis(500),
+        "a zero base delay must not sleep between attempts (default base is 1s here)"
+    );
+}
+
+#[tokio::test]
 async fn global_spawn_concurrency_never_exceeds_the_cap() {
     let niri = FakeNiri::start();
     let _env = niri.env();

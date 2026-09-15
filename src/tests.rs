@@ -1548,6 +1548,27 @@ fn v4_session_without_layout_still_loads_with_layout_none() {
 }
 
 #[test]
+fn example_session_doc_deserializes() {
+    let doc = Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/example-session.json");
+    let raw = fs::read_to_string(&doc).expect("docs/example-session.json must exist");
+    let parsed: SessionData = serde_json::from_str(&raw)
+        .expect("the documented example must load with the current model");
+    assert!(
+        !parsed.is_legacy(),
+        "the example documents the versioned format"
+    );
+    let windows = parsed.into_windows();
+    assert!(
+        !windows.is_empty(),
+        "the example documents at least one window"
+    );
+    assert!(
+        windows.iter().all(|w| w.layout.is_some()),
+        "the v5 example documents layout on every window"
+    );
+}
+
+#[test]
 fn layout_relevant_covers_geometry_changes() {
     let layout_event = niri_ipc::Event::WindowLayoutsChanged {
         changes: vec![(
