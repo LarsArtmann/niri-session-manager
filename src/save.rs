@@ -154,8 +154,8 @@ pub(crate) async fn run_reactive_save_session(
 /// duplicate of the socket handle, so the async side can shut the connection
 /// down and unblock the reader even while niri is idle.
 pub(crate) struct EventConnection<F> {
-    read_event: F,
-    socket_shutdown: UnixStream,
+    pub(crate) read_event: F,
+    pub(crate) socket_shutdown: UnixStream,
 }
 
 /// Opens a connection to the niri IPC socket, returning the stream and a

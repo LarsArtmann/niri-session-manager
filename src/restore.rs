@@ -83,7 +83,7 @@ pub(crate) enum RestoreOutcome {
 }
 
 impl fmt::Display for RestoreOutcome {
-    pub(crate) fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::SeededNewSession => {
                 write!(f, "Seeded a new session file from the current state")
@@ -190,10 +190,10 @@ pub(crate) fn prepare_saved_windows(
 /// windows can be matched against it (idempotent restore).
 #[derive(Debug, Clone)]
 pub(crate) struct RunningWindow {
-    id: u64,
-    app_id: Option<String>,
-    workspace_name: Option<String>,
-    workspace_idx: Option<u8>,
+    pub(crate) id: u64,
+    pub(crate) app_id: Option<String>,
+    pub(crate) workspace_name: Option<String>,
+    pub(crate) workspace_idx: Option<u8>,
 }
 
 pub(crate) async fn snapshot_running_windows() -> Result<Vec<RunningWindow>> {
@@ -312,8 +312,8 @@ pub(crate) fn plan_spawns(
 /// claim each other's new windows and land on swapped workspaces.
 #[derive(Clone)]
 pub(crate) struct SpawnLimiter {
-    global: Arc<Semaphore>,
-    per_app: Arc<Mutex<HashMap<String, Arc<Semaphore>>>>,
+    pub(crate) global: Arc<Semaphore>,
+    pub(crate) per_app: Arc<Mutex<HashMap<String, Arc<Semaphore>>>>,
 }
 
 impl SpawnLimiter {

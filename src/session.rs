@@ -3,7 +3,7 @@
 
 use anyhow::{bail, Context, Result};
 use niri_ipc::{Window, Workspace};
-use chrono::Local;
+use chrono::{Local, SecondsFormat};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Write;
@@ -27,11 +27,11 @@ pub(crate) fn get_session_file_path() -> Result<std::path::PathBuf> {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub(crate) struct WorkspaceInfo {
     #[serde(default, alias = "workspace_idx")]
-    idx: Option<u8>,
+    pub(crate) idx: Option<u8>,
     #[serde(default, alias = "workspace_name")]
-    name: Option<String>,
+    pub(crate) name: Option<String>,
     #[serde(default, alias = "workspace_output")]
-    output: Option<String>,
+    pub(crate) output: Option<String>,
 }
 
 impl WorkspaceInfo {
@@ -46,18 +46,18 @@ impl WorkspaceInfo {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct SavedWindow {
-    id: u64,
-    app_id: String,
+    pub(crate) id: u64,
+    pub(crate) app_id: String,
     #[serde(default, flatten)]
-    workspace: WorkspaceInfo,
-    is_focused: bool,
+    pub(crate) workspace: WorkspaceInfo,
+    pub(crate) is_focused: bool,
     #[serde(default)]
-    pid: Option<u32>,
+    pub(crate) pid: Option<u32>,
     #[serde(default)]
-    terminal_state: Option<TerminalState>,
+    pub(crate) terminal_state: Option<TerminalState>,
     /// Geometry at save time (format v5); `None` for pre-v5 files.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    layout: Option<SavedWindowLayout>,
+    pub(crate) layout: Option<SavedWindowLayout>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -78,8 +78,8 @@ impl ChildCommand {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct TerminalState {
-    child_command: Option<ChildCommand>,
-    child_cwd: Option<String>,
+    pub(crate) child_command: Option<ChildCommand>,
+    pub(crate) child_cwd: Option<String>,
 }
 
 /// A window's slot in its workspace's scrolling layout.
@@ -88,8 +88,8 @@ pub(crate) struct TerminalState {
 /// pair because one without the other is meaningless.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct ScrollPosition {
-    column: u64,
-    tile_in_column: u64,
+    pub(crate) column: u64,
+    pub(crate) tile_in_column: u64,
 }
 
 /// The on-screen geometry a window had when the session was saved
@@ -101,10 +101,10 @@ pub(crate) struct ScrollPosition {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct SavedWindowLayout {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    scroll_position: Option<ScrollPosition>,
+    pub(crate) scroll_position: Option<ScrollPosition>,
     /// Visible tile size in logical pixels, including borders.
-    tile_width: f64,
-    tile_height: f64,
+    pub(crate) tile_width: f64,
+    pub(crate) tile_height: f64,
 }
 
 impl SavedWindowLayout {
@@ -136,8 +136,8 @@ pub(crate) const MAX_SPAWN_CONCURRENCY: usize = 5;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct VersionedSession {
-    version: u32,
-    windows: Vec<SavedWindow>,
+    pub(crate) version: u32,
+    pub(crate) windows: Vec<SavedWindow>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

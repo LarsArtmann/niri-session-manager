@@ -46,15 +46,15 @@ pub(crate) const fn default_max_walk_depth() -> u32 {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct TerminalStateConfig {
     #[serde(default = "default_enabled")]
-    enabled: bool,
+    pub(crate) enabled: bool,
     #[serde(default = "default_terminal_app_ids")]
-    terminal_app_ids: Vec<String>,
+    pub(crate) terminal_app_ids: Vec<String>,
     #[serde(default = "default_shell_names")]
-    shell_names: Vec<String>,
+    pub(crate) shell_names: Vec<String>,
     #[serde(default = "default_helper_names")]
-    helper_names: Vec<String>,
+    pub(crate) helper_names: Vec<String>,
     #[serde(default = "default_max_walk_depth")]
-    max_walk_depth: u32,
+    pub(crate) max_walk_depth: u32,
 }
 
 impl Default for TerminalStateConfig {
@@ -72,25 +72,25 @@ impl Default for TerminalStateConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub(crate) struct SingleInstanceAppsConfig {
     #[serde(default)]
-    apps: Vec<String>,
+    pub(crate) apps: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub(crate) struct SkipAppsConfig {
     #[serde(default)]
-    apps: Vec<String>,
+    pub(crate) apps: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub(crate) struct AppConfig {
     #[serde(default)]
-    app_mappings: HashMap<String, Vec<String>>,
+    pub(crate) app_mappings: HashMap<String, Vec<String>>,
     #[serde(default, rename = "single_instance_apps")]
-    single_instance: SingleInstanceAppsConfig,
+    pub(crate) single_instance: SingleInstanceAppsConfig,
     #[serde(default, rename = "skip_apps")]
-    skip_apps: SkipAppsConfig,
+    pub(crate) skip_apps: SkipAppsConfig,
     #[serde(default)]
-    terminal_state: TerminalStateConfig,
+    pub(crate) terminal_state: TerminalStateConfig,
 }
 pub(crate) const DEFAULT_APP_CONFIG_TOML: &str = r#"# Niri Session Manager Configuration
 
@@ -176,39 +176,39 @@ pub(crate) fn load_app_config(explicit_path: Option<&Path>) -> Result<AppConfig>
 #[allow(clippy::struct_excessive_bools)]
 pub(crate) struct Config {
     #[arg(long, default_value = "15")]
-    save_interval: u64,
+    pub(crate) save_interval: u64,
 
     #[arg(long, default_value = "5")]
-    max_backup_count: usize,
+    pub(crate) max_backup_count: usize,
 
     #[arg(long, default_value = "5")]
-    spawn_timeout: u64,
+    pub(crate) spawn_timeout: u64,
 
     #[arg(long, default_value = "3")]
-    retry_attempts: u32,
+    pub(crate) retry_attempts: u32,
 
     #[arg(long, default_value = "2")]
-    retry_delay: u64,
+    pub(crate) retry_delay: u64,
 
     /// Sanity cap on how many windows a single restore may spawn
     #[arg(long, default_value_t = MAX_RESTORE_WINDOWS_DEFAULT)]
-    max_restore_windows: usize,
+    pub(crate) max_restore_windows: usize,
 
     /// Preview what would be restored without actually spawning windows or modifying files
     #[arg(long, default_value = "false")]
-    dry_run: bool,
+    pub(crate) dry_run: bool,
 
     /// Override the app-config path (default: XDG config dir, config.toml)
     #[arg(long = "config-file", value_name = "PATH")]
-    app_config_path: Option<PathBuf>,
+    pub(crate) app_config_path: Option<PathBuf>,
 
     /// Restore the saved session, then exit (no periodic saving)
     #[arg(long, conflicts_with = "save_only")]
-    restore: bool,
+    pub(crate) restore: bool,
 
     /// Skip the boot restore and only run periodic saving
     #[arg(long, conflicts_with = "restore")]
-    save_only: bool,
+    pub(crate) save_only: bool,
 
     /// Save the current session once, then exit (used by the suspend hook)
     #[arg(
@@ -217,7 +217,7 @@ pub(crate) struct Config {
         conflicts_with = "save_only",
         conflicts_with = "dry_run"
     )]
-    save_once: bool,
+    pub(crate) save_once: bool,
 
     /// Check service health (niri reachable, session file, restore marker) and exit
     #[arg(
@@ -227,16 +227,16 @@ pub(crate) struct Config {
         conflicts_with = "save_once",
         conflicts_with = "dry_run"
     )]
-    health_check: bool,
+    pub(crate) health_check: bool,
 
     /// Copy session.json plus all backups into DIR (created if missing), then exit
     #[arg(long, value_name = "DIR")]
-    export_to: Option<PathBuf>,
+    pub(crate) export_to: Option<PathBuf>,
 
     /// Validate and import session.json (plus backups) from DIR, backing up the
     /// current session first, then exit
     #[arg(long, value_name = "DIR", conflicts_with = "export_to")]
-    import_from: Option<PathBuf>,
+    pub(crate) import_from: Option<PathBuf>,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RunMode {
@@ -252,7 +252,7 @@ pub(crate) enum RunMode {
     HealthCheck,
 }
 impl Config {
-    const fn run_mode(&self) -> RunMode {
+    pub(crate) const fn run_mode(&self) -> RunMode {
         if self.restore {
             RunMode::RestoreOnly
         } else if self.save_only {

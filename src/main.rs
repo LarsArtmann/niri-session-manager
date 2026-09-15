@@ -12,7 +12,7 @@ mod fake_niri;
 #[cfg(test)]
 mod tests;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Parser;
 use niri_ipc::{Request, Response};
 use std::fs;
