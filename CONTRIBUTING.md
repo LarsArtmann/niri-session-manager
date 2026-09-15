@@ -21,9 +21,9 @@ nix flake check       # flake + module + formatting
 ## Ground rules
 
 1. **Tests are the contract.** Restore/save behavior changes need tests:
-   pure logic gets unit tests, IPC paths get tests against the fake niri
-   server in `src/fake_niri.rs` (it speaks the real protocol over a Unix
-   socket — set `$NIRI_SOCKET` via `FakeNiri::env()`).
+   pure logic gets unit tests in `src/tests.rs`, IPC paths get tests against
+   the fake niri server in `src/fake_niri.rs` (it speaks the real protocol
+   over a Unix socket — set `$NIRI_SOCKET` via `FakeNiri::env()`).
 2. **Keep clippy green.** `[lints.clippy]` in `Cargo.toml` denies pedantic,
    nursery, `unwrap_used`, `panic`, `as_conversions`, and friends. Use
    `context`/`bail`, `saturating_*`, `try_from`, and `Option` combinators.

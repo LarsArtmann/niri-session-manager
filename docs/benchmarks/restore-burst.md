@@ -17,6 +17,11 @@ real compositing work, which the fake does not simulate.
 BENCH: 30 windows in 3.011s (10 windows/s, 100.4 ms/window)
 ```
 
+Re-run 2026-09-15 after the IPC client moved onto tokio's blocking pool
+(`niri_send`/`spawn_blocking`): `BENCH: 30 windows in 3.013s (10 windows/s,
+100.4 ms/window)` — unchanged, as expected: the poll quantum dominates, and
+the blocking pool only moves socket waits off the async workers.
+
 ## Interpretation
 
 - The 100 ms/window floor is dominated by the **poll quantum**: after each
