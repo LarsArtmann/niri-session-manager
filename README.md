@@ -49,7 +49,7 @@ niri-session-manager [OPTIONS]
 --max-backup-count <COUNT>    Number of backup files to keep (default: 5)
 --spawn-timeout <SECONDS>     How long to wait for windows to spawn (default: 5)
 --retry-attempts <COUNT>      Number of restore attempts (default: 3)
---retry-delay <SECONDS>       Delay between retry attempts (default: 2)
+--retry-delay <SECONDS>       Base delay between retries; doubles per retry, capped at 30s (default: 2)
 --max-restore-windows <N>     Sanity cap on windows a single restore may spawn (default: 100)
 --dry-run                     Preview restore without spawning or saving
 --config-file <PATH>          Override the app-config path (default: XDG config, config.toml)

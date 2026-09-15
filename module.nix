@@ -60,7 +60,7 @@ in
       retryDelay = mkOption {
         type = types.nullOr types.ints.positive;
         default = null;
-        description = "Delay in seconds between retry attempts (default: 2).";
+        description = "Base delay in seconds between retry attempts; doubles on each retry, capped at 30 seconds (default: 2).";
       };
 
       maxRestoreWindows = mkOption {
