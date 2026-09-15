@@ -129,3 +129,7 @@ Nothing is broken — but ranked honestly, worst first:
 ---
 
 _Verification state at writing: 124 tests + 1 ignored benchmark green (5×), clippy/fmt clean, `nix build` + `nix flake check` green, docs-citations green, `v0.6.0` tagged at `6ecbb0e`, tree clean, nothing pushed._
+
+## Addendum (2026-09-15 ~15:45, post-release investigation)
+
+**Found after the tag push: GitHub Actions has NEVER run on this repo** (0 runs ever; pushed HEAD had zero check-runs), despite the workflow being `active` with correct triggers since the initial commit. Root cause: `LarsArtmann/niri-session-manager` is a **fork** of `MTeaHead/niri-session-manager` — fork workflows stay disabled until the owner enables them in the Actions tab (no API exists). Sibling repos (go-paperless: 29 runs, templ-components: 878) prove the account is fine. Consequence: every historical "CI" gate on this repo was **local parity only**. Fixes applied: `workflow_dispatch` + `v*` tag triggers added to `checks.yml`; AGENTS.md annotated. Remaining manual step: enable Actions in the UI, then sync and fire a run.
