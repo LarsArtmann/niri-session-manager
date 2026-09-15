@@ -1,14 +1,13 @@
 //! Turning saved windows back into commands, including terminal-specific
 //! restarts that re-open the foreground child in its working directory.
 
-use anyhow::Context;
 use std::collections::HashMap;
-use std::{env, fs};
+use std::fs;
 use tokio::task::spawn_blocking;
 
 use crate::config::TerminalStateConfig;
 use crate::proc;
-use crate::session::{ChildCommand, SavedWindow, TerminalState};
+use crate::session::SavedWindow;
 
 pub(crate) fn shell_escape(s: &str) -> String {
     if s.is_empty() {

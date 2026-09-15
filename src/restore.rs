@@ -11,7 +11,6 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::spawn;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
-use tokio::task::spawn_blocking;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use tracing::{info, warn};
@@ -19,9 +18,8 @@ use tracing::{info, warn};
 use crate::config::{AppConfig, Config, TerminalStateConfig};
 use crate::ipc::{get_niri_windows, get_niri_workspaces, niri_send};
 use crate::session::{
-    dedupe_single_instance_windows, filter_skipped_windows, get_session_file_path,
-    save_session_with_terminal_state,
-    load_session_windows, atomic_write, SavedWindow, SessionData, WorkspaceInfo,
+    atomic_write, load_session_windows, save_session_with_terminal_state, SavedWindow,
+    WorkspaceInfo,
 };
 use crate::terminal::build_spawn_command;
 pub(crate) const MAX_SPAWN_CONCURRENCY: usize = 5;

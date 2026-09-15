@@ -4,7 +4,7 @@
 //! blocking pool so callers never occupy a runtime worker (a current-thread
 //! runtime would otherwise serialize entirely behind one call).
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use niri_ipc::{socket::Socket, Reply, Request, Response, Window, Workspace};
 use tokio::task::spawn_blocking;
 

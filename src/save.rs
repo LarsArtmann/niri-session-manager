@@ -2,13 +2,12 @@
 //! capped reconnect backoff, and graceful shutdown with a final save.
 
 use anyhow::{Context, Result};
-use niri_ipc::{Event, Reply, Request, Response};
+use niri_ipc::{Reply, Request, Response};
 use std::io::{BufRead, BufReader, Write};
 use std::net::Shutdown;
 use std::path::Path;
 use std::os::unix::net::UnixStream;
-use std::time::{Duration, Instant};
-use tokio::select;
+use std::time::Duration;
 use tokio::sync::watch;
 use tokio::task::spawn_blocking;
 use tokio::task::JoinHandle;
@@ -16,7 +15,7 @@ use tokio::time::sleep;
 use tracing::{error, info, warn};
 
 use crate::config::{AppConfig, Config};
-use crate::session::{capture_session_json, save_session_with_backup};
+use crate::session::save_session_with_backup;
 
 pub(crate) const SAVE_DEBOUNCE_SECS: u64 = 2;
 /// Wait before the first reconnect attempt after a live event stream dies.

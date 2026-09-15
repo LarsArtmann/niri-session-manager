@@ -2,15 +2,13 @@
 //! files: capture from niri, atomic writes, backups, and export/import.
 
 use anyhow::{bail, Context, Result};
-use niri_ipc::{Window, Workspace};
+use niri_ipc::Workspace;
 use chrono::{Local, SecondsFormat};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Write;
-use std::os::unix::net::UnixStream;
 use std::time::UNIX_EPOCH;
-use std::path::{Path, PathBuf};
-use tokio::task::spawn_blocking;
+use std::path::Path;
 use tracing::{info, warn};
 
 use crate::config::{AppConfig, Config};
@@ -132,7 +130,6 @@ impl SavedWindowLayout {
 /// their defaults), so this constant is descriptive, not enforced: it stamps
 /// what a file was written with; nothing is rejected based on it.
 pub(crate) const SESSION_FORMAT_VERSION: u32 = 5;
-pub(crate) const MAX_SPAWN_CONCURRENCY: usize = 5;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub(crate) struct VersionedSession {

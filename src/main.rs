@@ -31,7 +31,7 @@ use crate::restore::{
 };
 use crate::save::{reactive_save_session, shutdown_with_final_save};
 use crate::session::{
-    capture_session_json, get_session_file_path, load_session_windows, run_export, run_import,
+    get_session_file_path, load_session_windows, run_export, run_import,
     save_session_with_backup,
 };
 

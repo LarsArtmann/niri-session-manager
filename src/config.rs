@@ -7,7 +7,6 @@ use clap::Parser;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
-use tracing::{info, warn};
 
 pub(crate) const MAX_RESTORE_WINDOWS_DEFAULT: usize = 100;
 pub(crate) const fn default_enabled() -> bool {
