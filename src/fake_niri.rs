@@ -195,7 +195,7 @@ impl FakeNiri {
         self.lock().actions.clone()
     }
 
-    /// The app_id of the fake's current window with `id`, spawned windows
+    /// The `app_id` of the fake's current window with `id`, spawned windows
     /// included. Spawned ids are assigned in request-arrival order, which is
     /// free to interleave across apps — never assume a specific id.
     pub(crate) fn window_app_id(&self, id: u64) -> Option<String> {

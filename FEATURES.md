@@ -55,17 +55,17 @@
 
 ## Configuration, integration, and operations
 
-| Feature                                                                     | Status                | Notes                                                                                                                              |
-| --------------------------------------------------------------------------- | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| TOML config (app_mappings, single_instance_apps, skip_apps, terminal_state) | 🟢 `FULLY_FUNCTIONAL` | `$XDG_CONFIG_HOME/niri-session-manager/config.toml`; missing default file auto-created; invalid TOML falls back; property-tested   |
-| `--config-file` override                                                    | 🟢 `FULLY_FUNCTIONAL` | explicit path missing = error (never auto-creates); default path missing = template                                                |
-| Run modes: `--restore`, `--save-only`, `--save-once`                        | 🟢 `FULLY_FUNCTIONAL` | mutually conflicting flags; save-once powers the suspend hook                                                                      |
-| `--health-check`                                                            | 🟢 `FULLY_FUNCTIONAL` | niri reachability + version, boot-gate state, session file age; IPC-tested, fails loudly without niri                              |
-| Session format v5 (descriptive version, legacy aliases)                     | 🟢 `FULLY_FUNCTIONAL` | versions 1–4 load via `#[serde(default)]`/aliases; property tests lock round-trips; see `docs/example-session.json`                |
-| NixOS module (6 tunables + suspend hook)                                    | 🟢 `FULLY_FUNCTIONAL` | `module.nix`: 6 of 7 CLI tunables mirrored (`dryRun` is CLI-only by design) + `saveOnSuspend` `sleep.target` oneshot               |
-| Supply-chain checks (cargo-deny, cargo audit)                               | 🟢 `FULLY_FUNCTIONAL` | `deny.toml` + CI step; audit clean (0 advisories across 140 crates, 2026-09-04)                                                    |
-| Structured logging (tracing, `RUST_LOG`)                                    | 🟢 `FULLY_FUNCTIONAL` | journald-native output with timestamps and levels                                                                                  |
-| Window layout capture (scroll slot + tile size, format v5)                  | 🟢 `FULLY_FUNCTIONAL` | `SavedWindowLayout::from_niri` in `src/session.rs`; `WindowLayoutsChanged` triggers saves; restore does not apply geometry yet     |
+| Feature                                                                     | Status                | Notes                                                                                                                            |
+| --------------------------------------------------------------------------- | --------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| TOML config (app_mappings, single_instance_apps, skip_apps, terminal_state) | 🟢 `FULLY_FUNCTIONAL` | `$XDG_CONFIG_HOME/niri-session-manager/config.toml`; missing default file auto-created; invalid TOML falls back; property-tested |
+| `--config-file` override                                                    | 🟢 `FULLY_FUNCTIONAL` | explicit path missing = error (never auto-creates); default path missing = template                                              |
+| Run modes: `--restore`, `--save-only`, `--save-once`                        | 🟢 `FULLY_FUNCTIONAL` | mutually conflicting flags; save-once powers the suspend hook                                                                    |
+| `--health-check`                                                            | 🟢 `FULLY_FUNCTIONAL` | niri reachability + version, boot-gate state, session file age; IPC-tested, fails loudly without niri                            |
+| Session format v5 (descriptive version, legacy aliases)                     | 🟢 `FULLY_FUNCTIONAL` | versions 1–4 load via `#[serde(default)]`/aliases; property tests lock round-trips; see `docs/example-session.json`              |
+| NixOS module (6 tunables + suspend hook)                                    | 🟢 `FULLY_FUNCTIONAL` | `module.nix`: 6 of 7 CLI tunables mirrored (`dryRun` is CLI-only by design) + `saveOnSuspend` `sleep.target` oneshot             |
+| Supply-chain checks (cargo-deny, cargo audit)                               | 🟢 `FULLY_FUNCTIONAL` | `deny.toml` + CI step; audit clean (0 advisories across 140 crates, 2026-09-04)                                                  |
+| Structured logging (tracing, `RUST_LOG`)                                    | 🟢 `FULLY_FUNCTIONAL` | journald-native output with timestamps and levels                                                                                |
+| Window layout capture (scroll slot + tile size, format v5)                  | 🟢 `FULLY_FUNCTIONAL` | `SavedWindowLayout::from_niri` in `src/session.rs`; `WindowLayoutsChanged` triggers saves; restore does not apply geometry yet   |
 
 ---
 

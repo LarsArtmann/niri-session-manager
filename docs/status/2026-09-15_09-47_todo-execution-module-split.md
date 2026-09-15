@@ -13,15 +13,15 @@
 
 ## Session at a glance
 
-| Metric                     | Value                                                                      |
-| -------------------------- | -------------------------------------------------------------------------- |
-| TODO items executed        | 4 of 4 actionable (2 Medium, 2 Low)                                        |
-| Files touched              | 10 Rust sources + 8 docs + Cargo.toml + module.nix + example-session.json  |
-| Test suite                 | 118 passed + 1 ignored (was 114) — green on 4 separate full runs           |
-| New tests added            | 4 (retry backoff, layout capture e2e, v4-file compat, event relevance)      |
-| Flaky test found + fixed   | 1 (`focus_is_restored_for_the_saved_focused_window`), 13/13 after the fix   |
-| Verification failures seen | 3 (one flaky test, one fmt drift, two self-inflicted build breaks)          |
-| Git commits by me          | 0 (auto-commit daemon; 12 heuristic commits in 6h — changesets entangled)   |
+| Metric                     | Value                                                                     |
+| -------------------------- | ------------------------------------------------------------------------- |
+| TODO items executed        | 4 of 4 actionable (2 Medium, 2 Low)                                       |
+| Files touched              | 10 Rust sources + 8 docs + Cargo.toml + module.nix + example-session.json |
+| Test suite                 | 118 passed + 1 ignored (was 114) — green on 4 separate full runs          |
+| New tests added            | 4 (retry backoff, layout capture e2e, v4-file compat, event relevance)    |
+| Flaky test found + fixed   | 1 (`focus_is_restored_for_the_saved_focused_window`), 13/13 after the fix |
+| Verification failures seen | 3 (one flaky test, one fmt drift, two self-inflicted build breaks)        |
+| Git commits by me          | 0 (auto-commit daemon; 12 heuristic commits in 6h — changesets entangled) |
 
 ---
 
@@ -51,7 +51,7 @@
 ### 3. Window layout capture, session format v5 (TODO item 6)
 
 - **Verified the upstream claim first** (pinned `niri-ipc 25.11.0` source, `Cargo.lock`):
-  `Window.layout` is *not* `Option<WindowLayout>` (lib.rs:1301), and its real shape is
+  `Window.layout` is _not_ `Option<WindowLayout>` (lib.rs:1301), and its real shape is
   `pos_in_scrolling_layout: Option<(usize, usize)>`, `tile_size: (f64, f64)`,
   `window_size: (i32, i32)`, `tile_pos_in_workspace_view`, `window_offset_in_tile` — richer
   and different from what the TODO text assumed.
@@ -88,7 +88,7 @@
 
 - `focus_is_restored_for_the_saved_focused_window` asserted `focus_actions == vec![2]` — an id
   that only holds when spawn requests arrive in saved order. Pre-change, inline blocking I/O on
-  a current-thread test runtime *accidentally* serialized them. My spawn_blocking change removed
+  a current-thread test runtime _accidentally_ serialized them. My spawn_blocking change removed
   that accident and the test became order-dependent (failed 1 of 4 runs).
 - Fixed to assert the order-independent truth: exactly one focus action, and it targets the
   window whose `app_id == "chromium"` — via a new documented harness getter
@@ -112,23 +112,23 @@
 
 ### 7. Verification actually executed (green, on the final tree)
 
-| Gate                                       | Result                                  |
-| ------------------------------------------ | --------------------------------------- |
-| `cargo test` ×4 (2 final, after flake fix) | 118 passed, 1 ignored, 0 failed         |
-| Focus test stress (13 runs)                | 13/13 pass                              |
-| `cargo clippy --all-features`              | 0 errors, 0 warnings (CI form)          |
-| `cargo fmt --all -- --check`               | clean                                   |
-| `nix build`                                | built                                   |
-| `nix flake check`                          | all checks passed                       |
-| `bash scripts/docs-citations.sh`           | all citations and links resolve         |
-| `jq` on `docs/example-session.json`        | v5 shape valid                          |
+| Gate                                       | Result                          |
+| ------------------------------------------ | ------------------------------- |
+| `cargo test` ×4 (2 final, after flake fix) | 118 passed, 1 ignored, 0 failed |
+| Focus test stress (13 runs)                | 13/13 pass                      |
+| `cargo clippy --all-features`              | 0 errors, 0 warnings (CI form)  |
+| `cargo fmt --all -- --check`               | clean                           |
+| `nix build`                                | built                           |
+| `nix flake check`                          | all checks passed               |
+| `bash scripts/docs-citations.sh`           | all citations and links resolve |
+| `jq` on `docs/example-session.json`        | v5 shape valid                  |
 
 ---
 
 ## b) PARTIALLY DONE
 
 1. **The module split's "own changeset" requirement — git history does not show it.** The TODO's
-   explicit demand was a reviewable, isolated split. In the working tree it *is* isolated (done
+   explicit demand was a reviewable, isolated split. In the working tree it _is_ isolated (done
    last, no logic changes), but the daemon's 12 heuristic commits in 6 hours swallowed all four
    changesets into one blob. Fixing this needs your explicit commit authorization (see g-3).
 2. **Captured geometry is write-only data.** v5 records layout, but nothing reads it: restore
@@ -188,15 +188,15 @@ and I nearly ended the session declaring a false green.**
 
 1. **I shipped a latent flake and called item 4 "done".** After replacing the spawn I/O substrate
    I ran the suite, saw 118 passed, and moved on. The very next full run failed
-   (`focus_is_restored_for_the_saved_focused_window`). My change did not *create* the
-   order-dependence, but it *removed the accident that hid it* — which means I owed that test an
+   (`focus_is_restored_for_the_saved_focused_window`). My change did not _create_ the
+   order-dependence, but it _removed the accident that hid it_ — which means I owed that test an
    inspection **before** touching the spawn path, and owed the suite repeated runs (16s each!) to
    declare done. The repo's own AGENTS.md session-rules list warns precisely against trusting a
    single green result; I read that file at session start and still did it. This is the single
    biggest miss of the session.
 2. **I broke the build twice with blind bulk sed sweeps.** First `pub(crate)` onto trait-impl
    methods (`Default::default`, `Display::fmt`) — illegal; then the struct-field sweep matched
-   *wrapped function-signature parameters* in `restore.rs`/`save.rs`. Each cost a build cycle and
+   _wrapped function-signature parameters_ in `restore.rs`/`save.rs`. Each cost a build cycle and
    manual line-by-line repair. The fix was a dry-run plus targeted line addresses; I did neither
    up front.
 3. **I claimed "Done — all four items executed and verified" when fmt had already drifted.** I ran
@@ -236,7 +236,7 @@ and I nearly ended the session declaring a false green.**
 - **Read the ordering-sensitive tests first.** Grep the harness for id/order assertions before
   changing anything that can reorder IPC arrivals.
 - **Dry-run every bulk edit** (print the matched lines) and follow with `cargo build` in the same
-  command — I followed the repo rule for *markers* but not for *syntax*.
+  command — I followed the repo rule for _markers_ but not for _syntax_.
 - **Stage the four changesets as separate explicit commits** — the only way the module split is
   independently reviewable, as the TODO demanded. This needs your authorization; the daemon will
   not do it for you.
@@ -250,8 +250,8 @@ and I nearly ended the session declaring a false green.**
 - Add `#[arg(help = …)]` to the six tunables; while there, decide whether `--retry-delay` should
   be renamed to `--retry-base-delay` (a SystemNix-visible breaking rename — coordinate).
 - Re-run and refresh the benchmark doc; add its numbers to CI or mark them dated.
-- Make the fixture-harness rule explicit in AGENTS: *never assert spawn arrival order or spawned
-  window ids; assert app identity* (now possible via `window_app_id`).
+- Make the fixture-harness rule explicit in AGENTS: _never assert spawn arrival order or spawned
+  window ids; assert app identity_ (now possible via `window_app_id`).
 - Audit `fake_niri.rs` for any other latent arrival-order coupling (one was caught by luck).
 - Propose the focus-steal fix (final focus pass after all spawns settle) and decide with you
   whether to implement or document-and-accept.

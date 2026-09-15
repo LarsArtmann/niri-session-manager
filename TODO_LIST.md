@@ -15,22 +15,22 @@
 
 ## High Impact
 
-| Task                                                                                                                           | Status       | Impact | Effort | Evidence                                                                               |
-| ------------------------------------------------------------------------------------------------------------------------------ | ------------ | ------ | ------ | -------------------------------------------------------------------------------------- |
-| Release v0.5.0 — tag cut locally (`00424ca`, `v0.5.0`), awaiting push so SystemNix can pin the tag                              | 🔵 `BLOCKED` | High   | Low    | `CHANGELOG.md` [0.5.0]; push awaits maintainer go-ahead                                |
+| Task                                                                                                                           | Status       | Impact | Effort | Evidence                                                                                   |
+| ------------------------------------------------------------------------------------------------------------------------------ | ------------ | ------ | ------ | ------------------------------------------------------------------------------------------ |
+| Release v0.5.0 — tag cut locally (`00424ca`, `v0.5.0`), awaiting push so SystemNix can pin the tag                             | 🔵 `BLOCKED` | High   | Low    | `CHANGELOG.md` [0.5.0]; push awaits maintainer go-ahead                                    |
 | Soak-test reactive saves + idempotent restore on real hardware (daily driver) — the fake server cannot prove niri-event timing | 🔴 `TODO`    | High   | Low    | `run_reactive_save_session` in `src/save.rs`; all integration tests use `src/fake_niri.rs` |
 
 ## Medium Impact
 
-| Task                                                                                                                          | Status       | Impact | Effort | Evidence                                                                        |
-| ------------------------------------------------------------------------------------------------------------------------------- | ------------ | ------ | ------ | -------------------------------------------------------------------------------- |
+| Task                                                                                                                         | Status       | Impact | Effort | Evidence                                                                        |
+| ---------------------------------------------------------------------------------------------------------------------------- | ------------ | ------ | ------ | ------------------------------------------------------------------------------- |
 | Terminal ground truth (ROADMAP Q3): confirm which terminals run daily and give those profiles must-not-regress soak coverage | 🔵 `BLOCKED` | Medium | Low    | profiles doc-verified 2026-09-04; real-binary coverage pending maintainer input |
 
 ## Low Impact
 
-| Task                                                                                                                                                           | Status    | Impact | Effort | Evidence                                                                                                                   |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- | ------ | ------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| Focus steal race: a window spawned after the saved-focused one can take focus (concurrent spawns); consider a final focus pass once all spawns settle          | 🔴 `TODO` | Low    | Low    | `focus_window` runs per spawn task in `src/restore.rs` `spawn_single_window`; surfaced by the fake-IPC harness 2026-09-15    |
+| Task                                                                                                                                                  | Status    | Impact | Effort | Evidence                                                                                                                  |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------- | --------- | ------ | ------ | ------------------------------------------------------------------------------------------------------------------------- |
+| Focus steal race: a window spawned after the saved-focused one can take focus (concurrent spawns); consider a final focus pass once all spawns settle | 🔴 `TODO` | Low    | Low    | `focus_window` runs per spawn task in `src/restore.rs` `spawn_single_window`; surfaced by the fake-IPC harness 2026-09-15 |
 
 ---
 
