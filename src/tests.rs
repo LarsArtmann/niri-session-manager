@@ -154,6 +154,24 @@ fn vanishing_session_file_prunes_this_boots_marker() {
 }
 
 #[test]
+fn unreadable_boot_id_restores_and_leaves_the_marker_alone() {
+    let dir = tempfile::tempdir().unwrap();
+    let session = dir.path().join("session.json");
+    let marker = dir.path().join("restore-marker");
+
+    std::fs::write(&session, "[]").unwrap();
+    atomic_write(&marker, "some-other-boot\n").unwrap();
+    assert!(
+        should_restore_on_boot(None, &marker, &session),
+        "unreadable boot id = never skip the restore"
+    );
+    assert!(
+        marker.exists(),
+        "without a boot id we cannot tell the marker is stale, so it must not be pruned"
+    );
+}
+
+#[test]
 fn shell_escape_empty() {
     assert_eq!(shell_escape(""), "''");
 }
@@ -609,6 +627,58 @@ fn session_data_parses_legacy_array_format() {
     assert!(session.is_legacy());
     let windows = session.into_windows();
     assert_eq!(windows.len(), 2);
+}
+
+#[test]
+fn session_json_with_unknown_future_keys_still_loads() {
+    let json = r#"{
+            "version": 5,
+            "windows": [
+                {
+                    "id": 1,
+                    "app_id": "kitty",
+                    "is_focused": true,
+                    "future_window_field": {"nested": [1, 2, 3]}
+                }
+            ],
+            "future_top_level_field": "ignored"
+        }"#;
+    let session: SessionData = serde_json::from_str(json).unwrap();
+    assert!(!session.is_legacy());
+    let windows = session.into_windows();
+    assert_eq!(windows.len(), 1);
+    assert_eq!(windows[0].app_id, "kitty");
+    assert!(windows[0].layout.is_none(), "absent layout must default");
+}
+
+#[test]
+fn valid_session_file_wins_over_corrupt_backups() {
+    let tmp = tempfile::tempdir().unwrap();
+    let session_path = tmp.path().join("session.json");
+    fs::write(
+        &session_path,
+        r#"{"version": 5, "windows": [{"id": 7, "app_id": "firefox", "is_focused": true}]}"#,
+    )
+    .unwrap();
+    fs::write(
+        tmp.path().join("session-2024-01-01T00:00:00Z.bak"),
+        "{BROKEN",
+    )
+    .unwrap();
+    fs::write(
+        tmp.path().join("session-2024-06-01T00:00:00Z.bak"),
+        "{ALSO BROKEN",
+    )
+    .unwrap();
+
+    let windows = load_session_windows(&session_path)
+        .expect("valid session must load without error")
+        .expect("valid session must yield windows");
+    assert_eq!(windows.len(), 1);
+    assert_eq!(
+        windows[0].id, 7,
+        "the live session must be used, not a backup"
+    );
 }
 
 #[test]
