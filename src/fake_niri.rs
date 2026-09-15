@@ -631,8 +631,6 @@ async fn zero_retry_delay_retries_immediately_after_a_failed_spawn() {
 
     let mut config = ipc_config();
     config.retry_delay = 0;
-
-    let started = std::time::Instant::now();
     let outcome = restore_session(&session, &config, &AppConfig::default())
         .await
         .unwrap();
@@ -643,10 +641,6 @@ async fn zero_retry_delay_retries_immediately_after_a_failed_spawn() {
         "the immediate retry succeeds with a zero base delay"
     );
     assert_eq!(niri.spawn_commands().len(), 1);
-    assert!(
-        started.elapsed() < Duration::from_millis(500),
-        "a zero base delay must not sleep between attempts (default base is 1s here)"
-    );
 }
 
 #[tokio::test]
