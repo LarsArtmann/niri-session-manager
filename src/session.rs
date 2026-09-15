@@ -2,20 +2,20 @@
 //! files: capture from niri, atomic writes, backups, and export/import.
 
 use anyhow::{bail, Context, Result};
-use niri_ipc::Workspace;
 use chrono::{Local, SecondsFormat};
+use niri_ipc::Workspace;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Write;
-use std::time::UNIX_EPOCH;
 use std::path::Path;
+use std::time::UNIX_EPOCH;
 use tracing::{info, warn};
 
 use crate::config::{AppConfig, Config};
 use crate::ipc::{get_niri_windows, get_niri_workspaces};
 use crate::terminal::resolve_terminal_state;
 
-pub(crate) fn get_session_file_path() -> Result<std::path::PathBuf> {
+pub fn get_session_file_path() -> Result<std::path::PathBuf> {
     let mut session_dir =
         dirs::data_dir().context("Failed to locate data directory (XDG_DATA_HOME)")?;
     session_dir.push("niri-session-manager");
@@ -23,17 +23,17 @@ pub(crate) fn get_session_file_path() -> Result<std::path::PathBuf> {
     Ok(session_dir.join("session.json"))
 }
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub(crate) struct WorkspaceInfo {
+pub struct WorkspaceInfo {
     #[serde(default, alias = "workspace_idx")]
-    pub(crate) idx: Option<u8>,
+    pub idx: Option<u8>,
     #[serde(default, alias = "workspace_name")]
-    pub(crate) name: Option<String>,
+    pub name: Option<String>,
     #[serde(default, alias = "workspace_output")]
-    pub(crate) output: Option<String>,
+    pub output: Option<String>,
 }
 
 impl WorkspaceInfo {
-    pub(crate) fn from_workspace(ws: Option<&Workspace>) -> Self {
+    pub fn from_workspace(ws: Option<&Workspace>) -> Self {
         ws.map_or_else(Self::default, |w| Self {
             idx: Some(w.idx),
             name: w.name.clone(),
@@ -43,30 +43,30 @@ impl WorkspaceInfo {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub(crate) struct SavedWindow {
-    pub(crate) id: u64,
-    pub(crate) app_id: String,
+pub struct SavedWindow {
+    pub id: u64,
+    pub app_id: String,
     #[serde(default, flatten)]
-    pub(crate) workspace: WorkspaceInfo,
-    pub(crate) is_focused: bool,
+    pub workspace: WorkspaceInfo,
+    pub is_focused: bool,
     #[serde(default)]
-    pub(crate) pid: Option<u32>,
+    pub pid: Option<u32>,
     #[serde(default)]
-    pub(crate) terminal_state: Option<TerminalState>,
+    pub terminal_state: Option<TerminalState>,
     /// Geometry at save time (format v5); `None` for pre-v5 files.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) layout: Option<SavedWindowLayout>,
+    pub layout: Option<SavedWindowLayout>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[serde(untagged)]
-pub(crate) enum ChildCommand {
+pub enum ChildCommand {
     Args(Vec<String>),
     Legacy(String),
 }
 
 impl ChildCommand {
-    pub(crate) fn to_args(&self) -> Vec<String> {
+    pub fn to_args(&self) -> Vec<String> {
         match self {
             Self::Args(args) => args.clone(),
             Self::Legacy(s) => s.split_whitespace().map(String::from).collect(),
@@ -74,10 +74,10 @@ impl ChildCommand {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub(crate) struct TerminalState {
-    pub(crate) child_command: Option<ChildCommand>,
-    pub(crate) child_cwd: Option<String>,
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TerminalState {
+    pub child_command: Option<ChildCommand>,
+    pub child_cwd: Option<String>,
 }
 
 /// A window's slot in its workspace's scrolling layout.
@@ -85,9 +85,9 @@ pub(crate) struct TerminalState {
 /// Both indices are 1-based, matching niri's own reporting; they travel as a
 /// pair because one without the other is meaningless.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct ScrollPosition {
-    pub(crate) column: u64,
-    pub(crate) tile_in_column: u64,
+pub struct ScrollPosition {
+    pub column: u64,
+    pub tile_in_column: u64,
 }
 
 /// The on-screen geometry a window had when the session was saved
@@ -97,17 +97,17 @@ pub(crate) struct ScrollPosition {
 /// tile size. Viewport-relative positions and Wayland-internal sizes change
 /// with the monitor setup or carry no restore meaning, so they are dropped.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub(crate) struct SavedWindowLayout {
+pub struct SavedWindowLayout {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) scroll_position: Option<ScrollPosition>,
+    pub scroll_position: Option<ScrollPosition>,
     /// Visible tile size in logical pixels, including borders.
-    pub(crate) tile_width: f64,
-    pub(crate) tile_height: f64,
+    pub tile_width: f64,
+    pub tile_height: f64,
 }
 
 impl SavedWindowLayout {
     /// Maps niri's `WindowLayout` onto the subset we keep in the session file.
-    pub(crate) fn from_niri(layout: &niri_ipc::WindowLayout) -> Self {
+    pub fn from_niri(layout: &niri_ipc::WindowLayout) -> Self {
         Self {
             scroll_position: layout
                 .pos_in_scrolling_layout
@@ -129,30 +129,30 @@ impl SavedWindowLayout {
 /// size). Files from versions 1-4 still load (missing keys deserialize to
 /// their defaults), so this constant is descriptive, not enforced: it stamps
 /// what a file was written with; nothing is rejected based on it.
-pub(crate) const SESSION_FORMAT_VERSION: u32 = 5;
+pub const SESSION_FORMAT_VERSION: u32 = 5;
 
 #[derive(Debug, Serialize, Deserialize)]
-pub(crate) struct VersionedSession {
-    pub(crate) version: u32,
-    pub(crate) windows: Vec<SavedWindow>,
+pub struct VersionedSession {
+    pub version: u32,
+    pub windows: Vec<SavedWindow>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(untagged)]
-pub(crate) enum SessionData {
+pub enum SessionData {
     Versioned(VersionedSession),
     Legacy(Vec<SavedWindow>),
 }
 
 impl SessionData {
-    pub(crate) fn into_windows(self) -> Vec<SavedWindow> {
+    pub fn into_windows(self) -> Vec<SavedWindow> {
         match self {
             Self::Versioned(v) => v.windows,
             Self::Legacy(windows) => windows,
         }
     }
 
-    const fn is_legacy(&self) -> bool {
+    pub const fn is_legacy(&self) -> bool {
         matches!(self, Self::Legacy(_))
     }
 }
@@ -161,7 +161,7 @@ impl SessionData {
 /// the parent directory. The parent-dir fsync is what makes the rename itself
 /// durable across a power loss; without it the machine can come back with the
 /// previous session file (or no file at all).
-pub(crate) fn atomic_write(file_path: &Path, data: &str) -> Result<()> {
+pub fn atomic_write(file_path: &Path, data: &str) -> Result<()> {
     let tmp_path = file_path.with_extension("json.tmp");
 
     let mut file =
@@ -187,7 +187,7 @@ pub(crate) fn atomic_write(file_path: &Path, data: &str) -> Result<()> {
 
     Ok(())
 }
-pub(crate) fn dedupe_single_instance_windows(
+pub fn dedupe_single_instance_windows(
     windows: Vec<SavedWindow>,
     single_instance_apps: &[String],
 ) -> Vec<SavedWindow> {
@@ -208,7 +208,10 @@ pub(crate) fn dedupe_single_instance_windows(
         .collect()
 }
 
-pub(crate) fn filter_skipped_windows(windows: Vec<SavedWindow>, skip_apps: &[String]) -> Vec<SavedWindow> {
+pub fn filter_skipped_windows(
+    windows: Vec<SavedWindow>,
+    skip_apps: &[String],
+) -> Vec<SavedWindow> {
     windows
         .into_iter()
         .filter(|w| !skip_apps.iter().any(|s| s == &w.app_id))
@@ -216,7 +219,7 @@ pub(crate) fn filter_skipped_windows(windows: Vec<SavedWindow>, skip_apps: &[Str
 }
 
 /// Captures the current niri state into the serialized session JSON.
-pub(crate) async fn capture_session_json(app_config: &AppConfig) -> Result<String> {
+pub async fn capture_session_json(app_config: &AppConfig) -> Result<String> {
     let windows = get_niri_windows().await?;
     let workspaces = get_niri_workspaces().await?;
     let terminal_config = &app_config.terminal_state;
@@ -300,7 +303,10 @@ pub(crate) async fn capture_session_json(app_config: &AppConfig) -> Result<Strin
     serde_json::to_string_pretty(&session).context("Failed to serialize window data")
 }
 
-pub(crate) async fn save_session_with_terminal_state(file_path: &Path, app_config: &AppConfig) -> Result<()> {
+pub async fn save_session_with_terminal_state(
+    file_path: &Path,
+    app_config: &AppConfig,
+) -> Result<()> {
     let json_data = capture_session_json(app_config).await?;
     atomic_write(file_path, &json_data).context("Failed to write session file")?;
     info!("Session saved to {}", file_path.display());
@@ -312,7 +318,7 @@ pub(crate) async fn save_session_with_terminal_state(file_path: &Path, app_confi
 /// Returns `Ok(None)` when there is no usable session data (missing file, or
 /// a corrupt file with no valid backup): a fresh session should then be
 /// seeded from the current niri state.
-pub(crate) fn load_session_windows(file_path: &Path) -> Result<Option<Vec<SavedWindow>>> {
+pub fn load_session_windows(file_path: &Path) -> Result<Option<Vec<SavedWindow>>> {
     if !file_path.exists() {
         info!("No previous session found at {}", file_path.display());
         return Ok(None);
@@ -346,7 +352,7 @@ pub(crate) fn load_session_windows(file_path: &Path) -> Result<Option<Vec<SavedW
     }
 }
 
-pub(crate) async fn save_session_with_backup(
+pub async fn save_session_with_backup(
     file_path: &Path,
     config: &Config,
     app_config: &AppConfig,
@@ -372,7 +378,7 @@ pub(crate) async fn save_session_with_backup(
     Ok(())
 }
 
-pub(crate) fn create_backup(file_path: &Path) -> Result<()> {
+pub fn create_backup(file_path: &Path) -> Result<()> {
     if file_path.exists() {
         let contents =
             fs::read_to_string(file_path).context("Failed to read session file for backup")?;
@@ -398,7 +404,9 @@ pub(crate) fn create_backup(file_path: &Path) -> Result<()> {
 
 /// Attempts to find and parse the most recent valid `.bak` file alongside the session file.
 /// Returns the backup path and parsed session data if a valid backup exists.
-pub(crate) fn find_latest_valid_backup(file_path: &Path) -> Option<(std::path::PathBuf, SessionData)> {
+pub fn find_latest_valid_backup(
+    file_path: &Path,
+) -> Option<(std::path::PathBuf, SessionData)> {
     let dir = file_path.parent()?;
 
     let mut backups: Vec<_> = fs::read_dir(dir)
@@ -430,7 +438,7 @@ pub(crate) fn find_latest_valid_backup(file_path: &Path) -> Option<(std::path::P
     None
 }
 
-pub(crate) fn cleanup_old_backups(session_dir: &Path, keep_count: usize) -> Result<()> {
+pub fn cleanup_old_backups(session_dir: &Path, keep_count: usize) -> Result<()> {
     let mut backups: Vec<_> = fs::read_dir(session_dir)?
         .filter_map(std::result::Result::ok)
         .filter(|entry| {
@@ -471,7 +479,7 @@ pub(crate) fn cleanup_old_backups(session_dir: &Path, keep_count: usize) -> Resu
     Ok(())
 }
 /// Copies the session file and every backup into `dest_dir` for safekeeping.
-pub(crate) fn run_export(session_file: &Path, dest_dir: &Path) -> Result<()> {
+pub fn run_export(session_file: &Path, dest_dir: &Path) -> Result<()> {
     if !session_file.exists() {
         bail!(
             "nothing to export: no session file at {}",
@@ -512,7 +520,7 @@ pub(crate) fn run_export(session_file: &Path, dest_dir: &Path) -> Result<()> {
 /// Validates a previously exported directory and installs its session file
 /// as the current one. Refuses invalid session data, and backs up whatever
 /// is currently on disk first.
-pub(crate) fn run_import(archive_dir: &Path, session_file: &Path) -> Result<()> {
+pub fn run_import(archive_dir: &Path, session_file: &Path) -> Result<()> {
     let source = archive_dir.join("session.json");
     let contents = fs::read_to_string(&source)
         .with_context(|| format!("Failed to read exported session {}", source.display()))?;
@@ -559,4 +567,3 @@ pub(crate) fn run_import(archive_dir: &Path, session_file: &Path) -> Result<()> 
     );
     Ok(())
 }
-

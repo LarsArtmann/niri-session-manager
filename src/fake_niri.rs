@@ -10,11 +10,20 @@
 //! [`FakeNiri::env`]) for the duration of its run so parallel tests cannot
 //! race on the variable.
 
-use crate::{
-    drive_event_driven_saves, get_restore_marker_path, reactive_save_session, restore_session,
-    run_reactive_save_session, run_service_loop, save_session_with_backup,
-    shutdown_with_final_save, subscribe_event_stream, AppConfig, Config, RestoreOutcome,
-    MAX_SPAWN_CONCURRENCY, SAVE_DEBOUNCE_SECS,
+use crate::config::{AppConfig, Config};
+use crate::restore::{
+    get_restore_marker_path, restore_session, run_boot_restore, should_restore_on_boot,
+    RestoreOutcome, MAX_SPAWN_CONCURRENCY,
+};
+use crate::run_health_check;
+use crate::run_service_loop;
+use crate::save::{
+    drive_event_driven_saves, reactive_save_session, run_reactive_save_session,
+    shutdown_with_final_save, subscribe_event_stream, SAVE_DEBOUNCE_SECS,
+};
+use crate::session::{
+    capture_session_json, save_session_with_backup, SavedWindow, VersionedSession, WorkspaceInfo,
+    SESSION_FORMAT_VERSION,
 };
 use niri_ipc::{
     Action, Reply, Request, Response, Window, WindowLayout, Workspace, WorkspaceReferenceArg,
@@ -436,11 +445,11 @@ pub fn niri_workspace(id: u64, idx: u8, name: Option<&str>, output: &str) -> Wor
     }
 }
 
-fn saved_win(id: u64, app: &str, name: &str, idx: u8, focused: bool) -> crate::SavedWindow {
-    crate::SavedWindow {
+fn saved_win(id: u64, app: &str, name: &str, idx: u8, focused: bool) -> SavedWindow {
+    SavedWindow {
         id,
         app_id: app.to_string(),
-        workspace: crate::WorkspaceInfo {
+        workspace: WorkspaceInfo {
             idx: Some(idx),
             name: Some(name.to_string()),
             output: None,
@@ -452,9 +461,9 @@ fn saved_win(id: u64, app: &str, name: &str, idx: u8, focused: bool) -> crate::S
     }
 }
 
-fn save_session_file(path: &Path, windows: &[crate::SavedWindow]) {
-    let session = crate::VersionedSession {
-        version: crate::SESSION_FORMAT_VERSION,
+fn save_session_file(path: &Path, windows: &[SavedWindow]) {
+    let session = VersionedSession {
+        version: SESSION_FORMAT_VERSION,
         windows: windows.to_vec(),
     };
     std::fs::write(path, serde_json::to_string_pretty(&session).unwrap()).unwrap();
@@ -607,7 +616,7 @@ async fn global_spawn_concurrency_never_exceeds_the_cap() {
     niri.set_workspaces(vec![niri_workspace(1, 1, Some("dev"), "DP-1")]);
 
     let session = niri.temp_dir().join("session.json");
-    let windows: Vec<crate::SavedWindow> = (1..=6)
+    let windows: Vec<SavedWindow> = (1..=6)
         .map(|i| saved_win(i, &format!("app{i}"), "dev", 1, false))
         .collect();
     save_session_file(&session, &windows);
@@ -687,7 +696,7 @@ async fn shutdown_aborts_periodic_save_then_runs_final_save() {
     shutdown_with_final_save(save_task, shutdown_tx, &session, &config, &app_config).await;
 
     let content = std::fs::read_to_string(&session).unwrap();
-    let saved: crate::VersionedSession = serde_json::from_str(&content).unwrap();
+    let saved: VersionedSession = serde_json::from_str(&content).unwrap();
     assert_eq!(
         saved.windows.len(),
         2,
@@ -710,7 +719,7 @@ async fn health_check_passes_with_a_live_niri() {
     let session = niri.temp_dir().join("session.json");
     save_session_file(&session, &[saved_win(1, "firefox", "dev", 1, false)]);
 
-    crate::run_health_check(&session)
+    run_health_check(&session)
         .await
         .expect("health check must pass with reachable niri and a valid session file");
 }
@@ -724,7 +733,7 @@ async fn health_check_fails_when_niri_is_unreachable() {
     // The lock prevents parallel tests from re-pointing the env at their fakes.
     let _env = FakeNiri::env_without_socket();
     assert!(
-        crate::run_health_check(&session).await.is_err(),
+        run_health_check(&session).await.is_err(),
         "health check without niri must fail"
     );
 }
@@ -745,7 +754,7 @@ async fn restore_burst_benchmark() {
     ]);
 
     let session = niri.temp_dir().join("session.json");
-    let windows: Vec<crate::SavedWindow> = (1..=30)
+    let windows: Vec<SavedWindow> = (1..=30)
         .map(|i| {
             saved_win(
                 i,
@@ -832,9 +841,7 @@ async fn capture_records_window_layout_in_the_session_file() {
     )]);
     niri.set_workspaces(vec![niri_workspace(1, 1, Some("dev"), "DP-1")]);
 
-    let json = crate::capture_session_json(&AppConfig::default())
-        .await
-        .unwrap();
+    let json = capture_session_json(&AppConfig::default()).await.unwrap();
     let value: serde_json::Value = serde_json::from_str(&json).unwrap();
     assert_eq!(
         value["windows"][0]["layout"].clone(),
@@ -870,7 +877,7 @@ async fn unchanged_layout_skips_backup_and_write() {
     };
 
     eprintln!("TEST: about to save 1");
-    let cap1 = crate::capture_session_json(&app_config).await.unwrap();
+    let cap1 = capture_session_json(&app_config).await.unwrap();
     eprintln!("CAP1: {cap1}");
     save_session_with_backup(&session, &config, &app_config)
         .await
@@ -881,7 +888,7 @@ async fn unchanged_layout_skips_backup_and_write() {
 
     // Identical layout: no backup rotation, no write churn.
     eprintln!("TEST: save 2");
-    let cap2 = crate::capture_session_json(&app_config).await.unwrap();
+    let cap2 = capture_session_json(&app_config).await.unwrap();
     eprintln!("CAP2: {cap2}");
     eprintln!(
         "FILELEN: {}",
@@ -936,7 +943,7 @@ async fn boot_restore_writes_marker_and_second_gate_run_is_skipped() {
     let marker = get_restore_marker_path(&session);
     std::fs::write(&marker, "00000000-0000-0000-0000-000000000000").unwrap();
 
-    crate::run_boot_restore(&session, &config, &app_config).await;
+    run_boot_restore(&session, &config, &app_config).await;
 
     assert_eq!(
         niri.spawn_commands().len(),
@@ -945,7 +952,7 @@ async fn boot_restore_writes_marker_and_second_gate_run_is_skipped() {
     );
     let written = std::fs::read_to_string(&marker).unwrap();
     assert!(
-        !crate::should_restore_on_boot(Some(written.trim()), &marker),
+        !should_restore_on_boot(Some(written.trim()), &marker),
         "the marker written after restore must gate the next boot-restore for this boot"
     );
 }
@@ -1206,7 +1213,7 @@ async fn save_only_skips_boot_restore_and_runs_the_save_loop() {
         "--save-only must not write the boot-restore marker"
     );
     let content = std::fs::read_to_string(&session).unwrap();
-    let saved: crate::VersionedSession = serde_json::from_str(&content).unwrap();
+    let saved: VersionedSession = serde_json::from_str(&content).unwrap();
     assert_eq!(
         saved.windows.len(),
         2,

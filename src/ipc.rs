@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use niri_ipc::{socket::Socket, Reply, Request, Response, Window, Workspace};
 use tokio::task::spawn_blocking;
 
-pub(crate) async fn niri_send(request: Request) -> Result<Response> {
+pub async fn niri_send(request: Request) -> Result<Response> {
     spawn_blocking(move || {
         let mut socket = Socket::connect().context("Failed to connect to Niri IPC socket")?;
         let reply = socket
@@ -23,14 +23,14 @@ pub(crate) async fn niri_send(request: Request) -> Result<Response> {
     .context("Niri IPC task join error")?
 }
 
-pub(crate) async fn get_niri_windows() -> Result<Vec<Window>> {
+pub async fn get_niri_windows() -> Result<Vec<Window>> {
     match niri_send(Request::Windows).await? {
         Response::Windows(windows) => Ok(windows),
         _ => anyhow::bail!("Expected Windows response from Niri"),
     }
 }
 
-pub(crate) async fn get_niri_workspaces() -> Result<Vec<Workspace>> {
+pub async fn get_niri_workspaces() -> Result<Vec<Workspace>> {
     match niri_send(Request::Workspaces).await? {
         Response::Workspaces(workspaces) => Ok(workspaces),
         _ => anyhow::bail!("Expected Workspaces response from Niri"),

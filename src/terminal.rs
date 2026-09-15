@@ -9,7 +9,7 @@ use crate::config::TerminalStateConfig;
 use crate::proc;
 use crate::session::SavedWindow;
 
-pub(crate) fn shell_escape(s: &str) -> String {
+pub fn shell_escape(s: &str) -> String {
     if s.is_empty() {
         return "''".to_string();
     }
@@ -17,7 +17,7 @@ pub(crate) fn shell_escape(s: &str) -> String {
 }
 
 #[cfg(target_os = "linux")]
-pub(crate) fn get_shell_from_passwd() -> Option<String> {
+pub fn get_shell_from_passwd() -> Option<String> {
     let status = fs::read_to_string("/proc/self/status").ok()?;
     let uid = status
         .lines()
@@ -38,7 +38,7 @@ pub(crate) fn get_shell_from_passwd() -> Option<String> {
     None
 }
 
-pub(crate) fn get_restore_shell() -> String {
+pub fn get_restore_shell() -> String {
     if let Ok(shell) = std::env::var("SHELL") {
         if !shell.is_empty() {
             return shell;
@@ -52,13 +52,13 @@ pub(crate) fn get_restore_shell() -> String {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum CwdFlag {
+pub enum CwdFlag {
     Separated(&'static str),
     Joined(&'static str),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum TerminalProfile {
+pub enum TerminalProfile {
     Kitty,
     Foot,
     Wezterm,
@@ -68,7 +68,7 @@ pub(crate) enum TerminalProfile {
 }
 
 impl TerminalProfile {
-    pub(crate) fn from_executable(name: &str) -> Self {
+    pub fn from_executable(name: &str) -> Self {
         let lower = name.to_lowercase();
         let last_segment = lower.rsplit('.').next().unwrap_or(&lower);
         match last_segment {
@@ -81,7 +81,7 @@ impl TerminalProfile {
         }
     }
 
-    pub(crate) fn from_args(args: &[String]) -> Self {
+    pub fn from_args(args: &[String]) -> Self {
         args.iter()
             .rev()
             .map(|arg| Self::from_executable(arg))
@@ -89,11 +89,11 @@ impl TerminalProfile {
             .unwrap_or(Self::Generic)
     }
 
-    const fn needs_start_subcommand(self) -> bool {
+    pub const fn needs_start_subcommand(self) -> bool {
         matches!(self, Self::Wezterm)
     }
 
-    const fn cwd_flag(self) -> CwdFlag {
+    pub const fn cwd_flag(self) -> CwdFlag {
         match self {
             Self::Kitty => CwdFlag::Separated("--directory"),
             Self::Foot | Self::Alacritty | Self::Generic => {
@@ -104,7 +104,7 @@ impl TerminalProfile {
         }
     }
 
-    const fn cmd_flag(self) -> Option<&'static str> {
+    pub const fn cmd_flag(self) -> Option<&'static str> {
         match self {
             Self::Kitty | Self::Foot => None,
             Self::Wezterm => Some("--"),
@@ -113,7 +113,7 @@ impl TerminalProfile {
     }
 }
 
-pub(crate) fn build_terminal_restore_command(
+pub fn build_terminal_restore_command(
     launch_prefix: &[String],
     profile: TerminalProfile,
     child_cmd: &[String],
@@ -161,7 +161,7 @@ pub(crate) fn build_terminal_restore_command(
     cmd
 }
 
-pub(crate) fn build_spawn_command(
+pub fn build_spawn_command(
     app_id: &str,
     saved_window: &SavedWindow,
     app_mappings: &HashMap<String, Vec<String>>,
@@ -189,7 +189,7 @@ pub(crate) fn build_spawn_command(
     mapped
 }
 
-pub(crate) async fn resolve_terminal_state(
+pub async fn resolve_terminal_state(
     pid: u32,
     config: &TerminalStateConfig,
 ) -> Option<(Vec<String>, String)> {
@@ -201,4 +201,3 @@ pub(crate) async fn resolve_terminal_state(
         .ok()
         .flatten()
 }
-

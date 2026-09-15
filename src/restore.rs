@@ -22,17 +22,17 @@ use crate::session::{
     WorkspaceInfo,
 };
 use crate::terminal::build_spawn_command;
-pub(crate) const MAX_SPAWN_CONCURRENCY: usize = 5;
+pub const MAX_SPAWN_CONCURRENCY: usize = 5;
 
-pub(crate) const SAME_APP_RESTORE_WARN_THRESHOLD: usize = 10;
-pub(crate) fn get_boot_id() -> Option<String> {
+pub const SAME_APP_RESTORE_WARN_THRESHOLD: usize = 10;
+pub fn get_boot_id() -> Option<String> {
     fs::read_to_string("/proc/sys/kernel/random/boot_id")
         .ok()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
 }
 
-pub(crate) fn get_restore_marker_path(session_file: &Path) -> PathBuf {
+pub fn get_restore_marker_path(session_file: &Path) -> PathBuf {
     session_file
         .parent()
         .unwrap_or_else(|| Path::new("."))
@@ -44,7 +44,7 @@ pub(crate) fn get_restore_marker_path(session_file: &Path) -> PathBuf {
 /// Without a readable `boot_id` we can never prove a restore already
 /// happened, so we always restore. A marker from a *previous* boot is stale
 /// and gets pruned so it cannot accumulate forever.
-pub(crate) fn should_restore_on_boot(boot_id: Option<&str>, marker_path: &Path) -> bool {
+pub fn should_restore_on_boot(boot_id: Option<&str>, marker_path: &Path) -> bool {
     let Some(id) = boot_id else {
         return true;
     };
@@ -67,7 +67,7 @@ pub(crate) fn should_restore_on_boot(boot_id: Option<&str>, marker_path: &Path) 
 
 /// What a restore pass actually decided to do.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RestoreOutcome {
+pub enum RestoreOutcome {
     /// No usable session data existed; a fresh session file was created from
     /// the current niri state. In dry-run mode nothing was written.
     SeededNewSession,
@@ -96,19 +96,19 @@ impl fmt::Display for RestoreOutcome {
 }
 
 /// Upper bound for the exponential backoff between restore retry attempts.
-pub(crate) const RETRY_DELAY_MAX: Duration = Duration::from_secs(30);
+pub const RETRY_DELAY_MAX: Duration = Duration::from_secs(30);
 
 /// Doubles the retry delay after each failed attempt so a persistently
 /// failing restore backs off instead of hammering niri at a fixed interval.
 /// `--retry-delay` is the base (waited after the first failure); a base of 0
 /// retries immediately, as that configuration always has.
-pub(crate) fn next_retry_delay(base_secs: u64, failed_attempts: u32) -> Duration {
+pub fn next_retry_delay(base_secs: u64, failed_attempts: u32) -> Duration {
     let factor = 2u32.saturating_pow(failed_attempts.saturating_sub(1));
     Duration::from_secs(base_secs)
         .saturating_mul(factor)
         .min(RETRY_DELAY_MAX)
 }
-pub(crate) async fn restore_session(
+pub async fn restore_session(
     file_path: &Path,
     config: &Config,
     app_config: &AppConfig,
@@ -137,7 +137,7 @@ pub(crate) async fn restore_session(
 /// Applies the restore-time filters and caps, with the same warnings as
 /// before: drop terminal windows without captured state, warn about
 /// suspicious per-app counts, cap at `--max-restore-windows`.
-pub(crate) fn prepare_saved_windows(
+pub fn prepare_saved_windows(
     mut windows: Vec<SavedWindow>,
     config: &Config,
     terminal_cfg: &TerminalStateConfig,
@@ -187,14 +187,14 @@ pub(crate) fn prepare_saved_windows(
 /// A window currently running in niri, joined with its workspace so saved
 /// windows can be matched against it (idempotent restore).
 #[derive(Debug, Clone)]
-pub(crate) struct RunningWindow {
-    pub(crate) id: u64,
-    pub(crate) app_id: Option<String>,
-    pub(crate) workspace_name: Option<String>,
-    pub(crate) workspace_idx: Option<u8>,
+pub struct RunningWindow {
+    pub id: u64,
+    pub app_id: Option<String>,
+    pub workspace_name: Option<String>,
+    pub workspace_idx: Option<u8>,
 }
 
-pub(crate) async fn snapshot_running_windows() -> Result<Vec<RunningWindow>> {
+pub async fn snapshot_running_windows() -> Result<Vec<RunningWindow>> {
     let windows = get_niri_windows().await?;
     let workspaces = get_niri_workspaces().await?;
     Ok(windows
@@ -214,7 +214,7 @@ pub(crate) async fn snapshot_running_windows() -> Result<Vec<RunningWindow>> {
 /// Whether a running window sits on the workspace a saved window was saved
 /// on. Names are matched first (stable across reorders); index is the
 /// fallback.
-pub(crate) fn workspace_matches(saved: &WorkspaceInfo, running: &RunningWindow) -> bool {
+pub fn workspace_matches(saved: &WorkspaceInfo, running: &RunningWindow) -> bool {
     if let Some(name) = saved.name.as_deref().filter(|n| !n.is_empty()) {
         return running.workspace_name.as_deref() == Some(name);
     }
@@ -231,7 +231,7 @@ pub(crate) fn workspace_matches(saved: &WorkspaceInfo, running: &RunningWindow) 
 /// spawn list at `saved − running` so re-running a restore never spawns more
 /// than the deficit. Single-instance apps keep their stronger rule: skipped
 /// entirely when any instance is already running.
-pub(crate) fn plan_spawns(
+pub fn plan_spawns(
     saved: &[SavedWindow],
     running: &[RunningWindow],
     app_config: &AppConfig,
@@ -309,20 +309,23 @@ pub(crate) fn plan_spawns(
 /// serializes spawns of the same app so two instances of one app cannot
 /// claim each other's new windows and land on swapped workspaces.
 #[derive(Clone)]
-pub(crate) struct SpawnLimiter {
-    pub(crate) global: Arc<Semaphore>,
-    pub(crate) per_app: Arc<Mutex<HashMap<String, Arc<Semaphore>>>>,
+pub struct SpawnLimiter {
+    pub global: Arc<Semaphore>,
+    pub per_app: Arc<Mutex<HashMap<String, Arc<Semaphore>>>>,
 }
 
 impl SpawnLimiter {
-    pub(crate) fn new(max_global_concurrency: usize) -> Self {
+    pub fn new(max_global_concurrency: usize) -> Self {
         Self {
             global: Arc::new(Semaphore::new(max_global_concurrency)),
             per_app: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
-    async fn acquire(&self, app_id: &str) -> Result<(OwnedSemaphorePermit, OwnedSemaphorePermit)> {
+    pub async fn acquire(
+        &self,
+        app_id: &str,
+    ) -> Result<(OwnedSemaphorePermit, OwnedSemaphorePermit)> {
         let app_semaphore = {
             let mut per_app = self
                 .per_app
@@ -345,7 +348,7 @@ impl SpawnLimiter {
         Ok((app_permit, global_permit))
     }
 }
-pub(crate) async fn restore_session_internal(
+pub async fn restore_session_internal(
     file_path: &Path,
     config: &Config,
     app_config: &AppConfig,
@@ -403,7 +406,7 @@ pub(crate) async fn restore_session_internal(
 
 /// Spawns the planned windows (concurrency-limited) and returns how many
 /// were confirmed visible in niri.
-pub(crate) async fn spawn_windows(
+pub async fn spawn_windows(
     to_spawn: Vec<SavedWindow>,
     running: &[RunningWindow],
     config: &Config,
@@ -454,7 +457,7 @@ pub(crate) async fn spawn_windows(
 
 /// Spawns one window and waits for it to appear, then applies placement and
 /// focus. Returns 1 if the window was confirmed visible, 0 otherwise.
-pub(crate) async fn spawn_single_window(
+pub async fn spawn_single_window(
     saved_window: &SavedWindow,
     command: &[String],
     spawn_timeout: u64,
@@ -493,7 +496,7 @@ pub(crate) async fn spawn_single_window(
 
 /// Polls niri for a newly-opened window of the saved app that no other spawn
 /// task has claimed yet. `None` when nothing appeared within the timeout.
-pub(crate) async fn wait_for_new_window(
+pub async fn wait_for_new_window(
     saved_window: &SavedWindow,
     spawn_timeout: u64,
     claimed: &Mutex<HashSet<u64>>,
@@ -527,7 +530,7 @@ pub(crate) async fn wait_for_new_window(
 /// treated as "no workspace": niri workspaces are 1-based, and legacy files
 /// saved `idx: 0` for unknown workspaces — moving to index 0 would fail on
 /// every spawn, so we leave the window on the active workspace instead.
-pub(crate) fn workspace_reference(workspace: &WorkspaceInfo) -> Option<WorkspaceReferenceArg> {
+pub fn workspace_reference(workspace: &WorkspaceInfo) -> Option<WorkspaceReferenceArg> {
     workspace
         .name
         .as_ref()
@@ -545,7 +548,11 @@ pub(crate) fn workspace_reference(workspace: &WorkspaceInfo) -> Option<Workspace
 /// Best-effort placement: pin to the saved output if it still exists (with a
 /// workspace-based fallback), move to the saved workspace, never steal focus
 /// with the move itself.
-pub(crate) async fn apply_window_placement(win_id: u64, saved_window: &SavedWindow, workspaces: &[Workspace]) {
+pub async fn apply_window_placement(
+    win_id: u64,
+    saved_window: &SavedWindow,
+    workspaces: &[Workspace],
+) {
     if let Some(output) = resolve_target_output(&saved_window.workspace, workspaces) {
         if let Err(e) = niri_send(Request::Action(Action::MoveWindowToMonitor {
             id: Some(win_id),
@@ -580,7 +587,10 @@ pub(crate) async fn apply_window_placement(win_id: u64, saved_window: &SavedWind
 /// (or index). Monitors get renamed or reordered between boots; the saved
 /// workspace survives on *some* output. (True position/EDID matching is not
 /// possible today: niri's IPC does not expose output positions.)
-pub(crate) fn resolve_target_output(saved: &WorkspaceInfo, workspaces: &[Workspace]) -> Option<String> {
+pub fn resolve_target_output(
+    saved: &WorkspaceInfo,
+    workspaces: &[Workspace],
+) -> Option<String> {
     let saved_output = saved.output.as_deref().filter(|o| !o.is_empty());
     if let Some(out) = saved_output {
         let output_exists = workspaces.iter().any(|w| w.output.as_deref() == Some(out));
@@ -604,7 +614,7 @@ pub(crate) fn resolve_target_output(saved: &WorkspaceInfo, workspaces: &[Workspa
 }
 
 /// Restores focus to the saved focused window, best-effort.
-pub(crate) async fn focus_window(win_id: u64, app_id: &str) {
+pub async fn focus_window(win_id: u64, app_id: &str) {
     match niri_send(Request::Action(Action::FocusWindow { id: win_id })).await {
         Ok(_) => info!("Restored focus to window {win_id} of app {app_id}"),
         Err(e) => warn!("Warning: failed to focus window {win_id}: {e}"),
@@ -612,7 +622,7 @@ pub(crate) async fn focus_window(win_id: u64, app_id: &str) {
 }
 /// One-shot boot restore behind the boot-scoped marker gate. Writes the
 /// marker only after a successful non-dry-run restore.
-pub(crate) async fn run_boot_restore(session_file: &Path, config: &Config, app_config: &AppConfig) {
+pub async fn run_boot_restore(session_file: &Path, config: &Config, app_config: &AppConfig) {
     let boot_id = get_boot_id();
     let marker_path = get_restore_marker_path(session_file);
     if !should_restore_on_boot(boot_id.as_deref(), &marker_path) {
