@@ -11,6 +11,7 @@ buildRustPackage (
       filter =
         path: type:
         type == "directory"
+        || lib.hasSuffix "docs/example-session.json" path
         || lib.any (ext: lib.hasSuffix ext (baseNameOf path)) [
           ".rs"
           ".toml"

@@ -281,7 +281,7 @@ ones I would do first.
 
 ### Verification debt created this session
 
-1. ~~**Loop the suite 5× and record the result** — establish that today's 118 are stable, not just~~ done (5 consecutive green runs 2026-09-15 (118 each; 121 after the new tests))
+1. ~~**Loop the suite 5× and record the result** — establish that today's 118 are stable, not just~~ done (5 consecutive green runs 2026-09-15 (118 each; 120 after the new tests))
    ~~green once. (Low effort)~~
 2. ~~**Audit `fake_niri.rs` for arrival-order coupling** beyond the one fixed test. (Low)~~ done (audit clean — no order-coupled assertions beyond the fixed focus test; rule recorded in AGENTS)
 3. ~~**Prove or retract the "focus race is pre-existing" claim** — run a worktree at a pre-change~~ done (proven at 8d2386b — 8/20 release, 7/20 debug failures on a multi_thread runtime)
