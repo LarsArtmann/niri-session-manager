@@ -195,6 +195,17 @@ impl FakeNiri {
         self.lock().actions.clone()
     }
 
+    /// The app_id of the fake's current window with `id`, spawned windows
+    /// included. Spawned ids are assigned in request-arrival order, which is
+    /// free to interleave across apps — never assume a specific id.
+    pub(crate) fn window_app_id(&self, id: u64) -> Option<String> {
+        self.lock()
+            .windows
+            .iter()
+            .find(|w| w.id == id)
+            .and_then(|w| w.app_id.clone())
+    }
+
     pub(crate) fn max_concurrent_spawns(&self) -> u64 {
         self.lock().max_in_flight
     }
@@ -663,9 +674,16 @@ async fn focus_is_restored_for_the_saved_focused_window() {
         })
         .collect();
     assert_eq!(
-        focus_actions,
-        vec![2],
-        "the saved focused window (chromium, spawned second) gets focus"
+        focus_actions.len(),
+        1,
+        "exactly the saved focused window gets a focus action"
+    );
+    // Spawned window ids are assigned in request-arrival order, and the two
+    // apps' spawn requests legitimately race — assert on the app, not the id.
+    assert_eq!(
+        niri.window_app_id(focus_actions[0]).as_deref(),
+        Some("chromium"),
+        "the saved focused window (chromium) gets focus"
     );
 }
 
