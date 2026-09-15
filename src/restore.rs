@@ -43,13 +43,33 @@ pub fn get_restore_marker_path(session_file: &Path) -> PathBuf {
 ///
 /// Without a readable `boot_id` we can never prove a restore already
 /// happened, so we always restore. A marker from a *previous* boot is stale
-/// and gets pruned so it cannot accumulate forever.
-pub fn should_restore_on_boot(boot_id: Option<&str>, marker_path: &Path) -> bool {
+/// and gets pruned so it cannot accumulate forever. A marker from *this*
+/// boot whose session file has vanished is also stale — the restore that
+/// wrote it can no longer be reused (a fresh restore just seeds a new
+/// session from the current state), so the marker is pruned and we restore.
+pub fn should_restore_on_boot(
+    boot_id: Option<&str>,
+    marker_path: &Path,
+    session_file: &Path,
+) -> bool {
     let Some(id) = boot_id else {
         return true;
     };
     match fs::read_to_string(marker_path) {
-        Ok(contents) if contents.trim() == id => false,
+        Ok(contents) if contents.trim() == id => {
+            if session_file.exists() {
+                return false;
+            }
+            if let Err(e) = fs::remove_file(marker_path) {
+                warn!(
+                    "Failed to prune restore marker whose session file vanished {}: {e}",
+                    marker_path.display()
+                );
+            } else {
+                info!("Session file vanished; pruned this boot's restore marker so restore can re-run");
+            }
+            true
+        }
         Ok(_) => {
             if let Err(e) = fs::remove_file(marker_path) {
                 warn!(
@@ -622,7 +642,7 @@ pub async fn focus_window(win_id: u64, app_id: &str) {
 pub async fn run_boot_restore(session_file: &Path, config: &Config, app_config: &AppConfig) {
     let boot_id = get_boot_id();
     let marker_path = get_restore_marker_path(session_file);
-    if !should_restore_on_boot(boot_id.as_deref(), &marker_path) {
+    if !should_restore_on_boot(boot_id.as_deref(), &marker_path, session_file) {
         info!(
             "Session already restored for this boot; skipping restore (marker: {})",
             marker_path.display()

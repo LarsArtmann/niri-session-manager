@@ -67,7 +67,7 @@ async fn run_health_check(session_file: &Path) -> Result<()> {
 
     let marker_path = get_restore_marker_path(session_file);
     let boot_id = get_boot_id();
-    if should_restore_on_boot(boot_id.as_deref(), &marker_path) {
+    if should_restore_on_boot(boot_id.as_deref(), &marker_path, session_file) {
         info!("restore marker: this boot has not been restored yet (or marker is absent/stale)");
     } else {
         info!("restore marker: this boot was already restored");
@@ -88,8 +88,9 @@ async fn run_health_check(session_file: &Path) -> Result<()> {
                     )
                 },
             );
+        let with_layout = windows.iter().filter(|w| w.layout.is_some()).count();
         info!(
-            "session file: {} window(s), last written {age}",
+            "session file: {} window(s), {with_layout} with captured layout, last written {age}",
             windows.len()
         );
     } else {

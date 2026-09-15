@@ -104,20 +104,22 @@ fn filter_skipped_windows_removes_only_skipped_apps() {
 #[test]
 fn should_restore_on_boot_gate_and_stale_pruning() {
     let dir = tempfile::tempdir().unwrap();
+    let session = dir.path().join("session.json");
     let marker = dir.path().join("restore-marker");
 
     assert!(
-        should_restore_on_boot(Some("boot-abc-123"), &marker),
+        should_restore_on_boot(Some("boot-abc-123"), &marker, &session),
         "missing marker = should restore"
     );
     atomic_write(&marker, "boot-abc-123\n").unwrap();
+    std::fs::write(&session, "[]").unwrap();
     assert!(
-        !should_restore_on_boot(Some("boot-abc-123"), &marker),
+        !should_restore_on_boot(Some("boot-abc-123"), &marker, &session),
         "matching boot id = already restored"
     );
     atomic_write(&marker, "older-boot\n").unwrap();
     assert!(
-        should_restore_on_boot(Some("boot-abc-123"), &marker),
+        should_restore_on_boot(Some("boot-abc-123"), &marker, &session),
         "stale marker from a previous boot = should restore"
     );
     assert!(
@@ -125,9 +127,30 @@ fn should_restore_on_boot_gate_and_stale_pruning() {
         "stale marker is pruned so it cannot accumulate forever"
     );
     assert!(
-        should_restore_on_boot(None, &marker),
+        should_restore_on_boot(None, &marker, &session),
         "unknown boot id (no /proc access) = never skip"
     );
+}
+
+#[test]
+fn vanishing_session_file_prunes_this_boots_marker() {
+    let dir = tempfile::tempdir().unwrap();
+    let session = dir.path().join("session.json");
+    let marker = dir.path().join("restore-marker");
+
+    std::fs::write(&session, "[]").unwrap();
+    atomic_write(&marker, "boot-abc-123\n").unwrap();
+    assert!(
+        !should_restore_on_boot(Some("boot-abc-123"), &marker, &session),
+        "restored this boot with a live session file = skip"
+    );
+
+    std::fs::remove_file(&session).unwrap();
+    assert!(
+        should_restore_on_boot(Some("boot-abc-123"), &marker, &session),
+        "session file vanished = marker must not block a re-restore"
+    );
+    assert!(!marker.exists(), "the orphaned marker is pruned");
 }
 
 #[test]

@@ -994,7 +994,7 @@ async fn boot_restore_writes_marker_and_second_gate_run_is_skipped() {
     );
     let written = std::fs::read_to_string(&marker).unwrap();
     assert!(
-        !should_restore_on_boot(Some(written.trim()), &marker),
+        !should_restore_on_boot(Some(written.trim()), &marker, &session),
         "the marker written after restore must gate the next boot-restore for this boot"
     );
 }
