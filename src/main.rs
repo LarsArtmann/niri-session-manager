@@ -97,7 +97,7 @@ async fn run_health_check(session_file: &Path) -> Result<()> {
 /// Mode dispatch plus the long-running service loop. Split out of `main` so
 /// the fake-IPC harness can drive it end-to-end with an injected shutdown
 /// signal.
-async fn run_service_loop(
+pub(crate) async fn run_service_loop(
     session_file: &Path,
     config: &Config,
     app_config: &AppConfig,

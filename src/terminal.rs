@@ -10,7 +10,7 @@ use crate::config::TerminalStateConfig;
 use crate::proc;
 use crate::session::{ChildCommand, SavedWindow, TerminalState};
 
-fn shell_escape(s: &str) -> String {
+pub(crate) fn shell_escape(s: &str) -> String {
     if s.is_empty() {
         return "''".to_string();
     }
@@ -18,7 +18,7 @@ fn shell_escape(s: &str) -> String {
 }
 
 #[cfg(target_os = "linux")]
-fn get_shell_from_passwd() -> Option<String> {
+pub(crate) fn get_shell_from_passwd() -> Option<String> {
     let status = fs::read_to_string("/proc/self/status").ok()?;
     let uid = status
         .lines()
@@ -39,7 +39,7 @@ fn get_shell_from_passwd() -> Option<String> {
     None
 }
 
-fn get_restore_shell() -> String {
+pub(crate) fn get_restore_shell() -> String {
     if let Ok(shell) = std::env::var("SHELL") {
         if !shell.is_empty() {
             return shell;
@@ -53,13 +53,13 @@ fn get_restore_shell() -> String {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CwdFlag {
+pub(crate) enum CwdFlag {
     Separated(&'static str),
     Joined(&'static str),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TerminalProfile {
+pub(crate) enum TerminalProfile {
     Kitty,
     Foot,
     Wezterm,
@@ -69,7 +69,7 @@ enum TerminalProfile {
 }
 
 impl TerminalProfile {
-    fn from_executable(name: &str) -> Self {
+    pub(crate) fn from_executable(name: &str) -> Self {
         let lower = name.to_lowercase();
         let last_segment = lower.rsplit('.').next().unwrap_or(&lower);
         match last_segment {
@@ -82,7 +82,7 @@ impl TerminalProfile {
         }
     }
 
-    fn from_args(args: &[String]) -> Self {
+    pub(crate) fn from_args(args: &[String]) -> Self {
         args.iter()
             .rev()
             .map(|arg| Self::from_executable(arg))
@@ -114,7 +114,7 @@ impl TerminalProfile {
     }
 }
 
-fn build_terminal_restore_command(
+pub(crate) fn build_terminal_restore_command(
     launch_prefix: &[String],
     profile: TerminalProfile,
     child_cmd: &[String],
@@ -162,7 +162,7 @@ fn build_terminal_restore_command(
     cmd
 }
 
-fn build_spawn_command(
+pub(crate) fn build_spawn_command(
     app_id: &str,
     saved_window: &SavedWindow,
     app_mappings: &HashMap<String, Vec<String>>,
@@ -190,7 +190,7 @@ fn build_spawn_command(
     mapped
 }
 
-async fn resolve_terminal_state(
+pub(crate) async fn resolve_terminal_state(
     pid: u32,
     config: &TerminalStateConfig,
 ) -> Option<(Vec<String>, String)> {

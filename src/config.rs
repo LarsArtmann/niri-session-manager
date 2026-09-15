@@ -8,11 +8,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tracing::{info, warn};
 
-const MAX_RESTORE_WINDOWS_DEFAULT: usize = 100;
-const fn default_enabled() -> bool {
+pub(crate) const MAX_RESTORE_WINDOWS_DEFAULT: usize = 100;
+pub(crate) const fn default_enabled() -> bool {
     true
 }
-fn default_terminal_app_ids() -> Vec<String> {
+pub(crate) fn default_terminal_app_ids() -> Vec<String> {
     vec![
         "kitty".into(),
         "foot".into(),
@@ -21,7 +21,7 @@ fn default_terminal_app_ids() -> Vec<String> {
         "alacritty".into(),
     ]
 }
-fn default_shell_names() -> Vec<String> {
+pub(crate) fn default_shell_names() -> Vec<String> {
     vec![
         "fish".into(),
         "bash".into(),
@@ -36,14 +36,14 @@ fn default_shell_names() -> Vec<String> {
         "doas".into(),
     ]
 }
-fn default_helper_names() -> Vec<String> {
+pub(crate) fn default_helper_names() -> Vec<String> {
     vec!["kitten".into()]
 }
-const fn default_max_walk_depth() -> u32 {
+pub(crate) const fn default_max_walk_depth() -> u32 {
     20
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct TerminalStateConfig {
+pub(crate) struct TerminalStateConfig {
     #[serde(default = "default_enabled")]
     enabled: bool,
     #[serde(default = "default_terminal_app_ids")]
@@ -57,7 +57,7 @@ struct TerminalStateConfig {
 }
 
 impl Default for TerminalStateConfig {
-    fn default() -> Self {
+    pub(crate) fn default() -> Self {
         Self {
             enabled: default_enabled(),
             terminal_app_ids: default_terminal_app_ids(),
@@ -69,19 +69,19 @@ impl Default for TerminalStateConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-struct SingleInstanceAppsConfig {
+pub(crate) struct SingleInstanceAppsConfig {
     #[serde(default)]
     apps: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-struct SkipAppsConfig {
+pub(crate) struct SkipAppsConfig {
     #[serde(default)]
     apps: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-struct AppConfig {
+pub(crate) struct AppConfig {
     #[serde(default)]
     app_mappings: HashMap<String, Vec<String>>,
     #[serde(default, rename = "single_instance_apps")]
@@ -91,7 +91,7 @@ struct AppConfig {
     #[serde(default)]
     terminal_state: TerminalStateConfig,
 }
-const DEFAULT_APP_CONFIG_TOML: &str = r#"# Niri Session Manager Configuration
+pub(crate) const DEFAULT_APP_CONFIG_TOML: &str = r#"# Niri Session Manager Configuration
 
 # Apps that should only have one instance
 [single_instance_apps] 
@@ -124,7 +124,7 @@ shell_names = ["fish", "bash", "zsh", "sh", "dash", "-fish", "-bash", "-zsh", "-
 helper_names = ["kitten"]
 max_walk_depth = 20
 "#;
-fn default_app_config_path() -> Result<PathBuf> {
+pub(crate) fn default_app_config_path() -> Result<PathBuf> {
     let mut config_path = dirs::config_dir().context("Failed to locate config directory")?;
     config_path.push("niri-session-manager");
     config_path.push("config.toml");
@@ -136,7 +136,7 @@ fn default_app_config_path() -> Result<PathBuf> {
 /// file is an error: the user asked for that exact file.
 /// Rejects config values that would cause silent misbehavior at restore
 /// time.
-fn validate_app_config(app_config: &AppConfig) -> Result<()> {
+pub(crate) fn validate_app_config(app_config: &AppConfig) -> Result<()> {
     if app_config.terminal_state.max_walk_depth == 0 {
         bail!(
             "terminal_state.max_walk_depth must be at least 1 (0 would never walk to any child process)"
@@ -144,7 +144,7 @@ fn validate_app_config(app_config: &AppConfig) -> Result<()> {
     }
     Ok(())
 }
-fn load_app_config(explicit_path: Option<&Path>) -> Result<AppConfig> {
+pub(crate) fn load_app_config(explicit_path: Option<&Path>) -> Result<AppConfig> {
     let config_path = if let Some(p) = explicit_path {
         p.to_path_buf()
     } else {
@@ -173,7 +173,7 @@ fn load_app_config(explicit_path: Option<&Path>) -> Result<AppConfig> {
 // The bools are clap flags, not state modeling: each is an independent,
 // user-facing switch, which is exactly what a CLI struct is for.
 #[allow(clippy::struct_excessive_bools)]
-struct Config {
+pub(crate) struct Config {
     #[arg(long, default_value = "15")]
     save_interval: u64,
 
@@ -238,7 +238,7 @@ struct Config {
     import_from: Option<PathBuf>,
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RunMode {
+pub(crate) enum RunMode {
     /// Boot restore (marker-gated), then reactive saving until shutdown.
     Normal,
     /// Only restore, then exit.
@@ -266,7 +266,7 @@ impl Config {
     }
 
     /// Rejects nonsensical CLI values that would cause silent misbehavior.
-    fn validate(&self) -> Result<()> {
+    pub(crate) fn validate(&self) -> Result<()> {
         if self.save_interval == 0 {
             bail!("--save-interval must be at least 1 minute");
         }

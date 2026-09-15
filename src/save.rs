@@ -16,27 +16,27 @@ use tracing::{error, info, warn};
 use crate::config::{AppConfig, Config};
 use crate::session::{capture_session_json, save_session_with_backup};
 
-const SAVE_DEBOUNCE_SECS: u64 = 2;
+pub(crate) const SAVE_DEBOUNCE_SECS: u64 = 2;
 /// Wait before the first reconnect attempt after a live event stream dies.
-const RECONNECT_DELAY_INITIAL: Duration = Duration::from_secs(1);
+pub(crate) const RECONNECT_DELAY_INITIAL: Duration = Duration::from_secs(1);
 /// Upper bound for the exponential reconnect backoff.
-const RECONNECT_DELAY_MAX: Duration = Duration::from_secs(30);
+pub(crate) const RECONNECT_DELAY_MAX: Duration = Duration::from_secs(30);
 /// How long shutdown waits for the reactive save task to stop gracefully
 /// before falling back to an abort.
-const SAVE_TASK_SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
+pub(crate) const SAVE_TASK_SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
 /// A stream that survived this long counts as healthy and resets the
 /// reconnect backoff; quicker deaths count as niri flapping.
-const RECONNECT_HEALTHY_STREAM: Duration = Duration::from_secs(5);
+pub(crate) const RECONNECT_HEALTHY_STREAM: Duration = Duration::from_secs(5);
 
 /// Doubles the reconnect delay, capped so a flapping niri cannot pin the save
 /// loop into a hot reconnect cycle.
-fn next_reconnect_delay(current: Duration) -> Duration {
+pub(crate) fn next_reconnect_delay(current: Duration) -> Duration {
     current.saturating_mul(2).min(RECONNECT_DELAY_MAX)
 }
 
 /// Resolves once a graceful shutdown has been requested (immediately if it
 /// already was). A dropped sender also counts as a shutdown request.
-async fn shutdown_requested(shutdown: &mut watch::Receiver<bool>) {
+pub(crate) async fn shutdown_requested(shutdown: &mut watch::Receiver<bool>) {
     if *shutdown.borrow_and_update() {
         return;
     }
@@ -44,7 +44,7 @@ async fn shutdown_requested(shutdown: &mut watch::Receiver<bool>) {
 }
 
 /// Whether a niri event can change what a session save would capture.
-const fn layout_relevant(event: &niri_ipc::Event) -> bool {
+pub(crate) const fn layout_relevant(event: &niri_ipc::Event) -> bool {
     use niri_ipc::Event;
     matches!(
         event,
@@ -63,7 +63,7 @@ const fn layout_relevant(event: &niri_ipc::Event) -> bool {
 /// after layout activity settles (debounced), instead of blind polling.
 /// When the stream is unavailable or dies, falls back to saving at the
 /// configured interval until niri accepts a subscription again.
-async fn reactive_save_session(
+pub(crate) async fn reactive_save_session(
     file_path: std::path::PathBuf,
     config: Config,
     app_config: AppConfig,
@@ -75,7 +75,7 @@ async fn reactive_save_session(
 
 /// The save loop with an injectable fallback interval, so tests can exercise
 /// the polling-fallback branch without waiting out the configured minutes.
-async fn run_reactive_save_session(
+pub(crate) async fn run_reactive_save_session(
     file_path: std::path::PathBuf,
     config: Config,
     app_config: AppConfig,
@@ -151,14 +151,14 @@ async fn run_reactive_save_session(
 /// A live niri event-stream connection: a blocking event reader plus a
 /// duplicate of the socket handle, so the async side can shut the connection
 /// down and unblock the reader even while niri is idle.
-struct EventConnection<F> {
+pub(crate) struct EventConnection<F> {
     read_event: F,
     socket_shutdown: UnixStream,
 }
 
 /// Opens a connection to the niri IPC socket, returning the stream and a
 /// clone that can shut the connection down from another thread.
-fn open_niri_socket() -> std::io::Result<(UnixStream, UnixStream)> {
+pub(crate) fn open_niri_socket() -> std::io::Result<(UnixStream, UnixStream)> {
     let socket_path = std::env::var_os(niri_ipc::socket::SOCKET_PATH_ENV).ok_or_else(|| {
         std::io::Error::new(
             std::io::ErrorKind::NotFound,
@@ -171,7 +171,7 @@ fn open_niri_socket() -> std::io::Result<(UnixStream, UnixStream)> {
 }
 
 /// Sends one JSON-line request and reads the JSON-line reply.
-fn request_reply(stream: &mut BufReader<UnixStream>, request: &Request) -> std::io::Result<Reply> {
+pub(crate) fn request_reply(stream: &mut BufReader<UnixStream>, request: &Request) -> std::io::Result<Reply> {
     let mut buf = serde_json::to_string(&request).map_err(std::io::Error::other)?;
     buf.push('\n');
     stream.get_mut().write_all(buf.as_bytes())?;
@@ -182,7 +182,7 @@ fn request_reply(stream: &mut BufReader<UnixStream>, request: &Request) -> std::
 
 /// Blocking reader over an established event stream; returns an error once
 /// the connection dies (or is shut down from the async side).
-fn event_reader(stream: BufReader<UnixStream>) -> impl FnMut() -> std::io::Result<niri_ipc::Event> {
+pub(crate) fn event_reader(stream: BufReader<UnixStream>) -> impl FnMut() -> std::io::Result<niri_ipc::Event> {
     let mut stream = stream;
     move || {
         let mut buf = String::new();
@@ -191,7 +191,7 @@ fn event_reader(stream: BufReader<UnixStream>) -> impl FnMut() -> std::io::Resul
     }
 }
 
-async fn subscribe_event_stream(
+pub(crate) async fn subscribe_event_stream(
 ) -> Result<EventConnection<impl FnMut() -> std::io::Result<niri_ipc::Event> + Send + 'static>> {
     spawn_blocking(move || {
         let (stream, socket_shutdown) =
@@ -215,7 +215,7 @@ async fn subscribe_event_stream(
 
 /// Saves (debounced) whenever a layout-relevant event arrives; returns when
 /// the event stream dies or a shutdown is requested.
-async fn drive_event_driven_saves(
+pub(crate) async fn drive_event_driven_saves(
     connection: EventConnection<impl FnMut() -> std::io::Result<niri_ipc::Event> + Send + 'static>,
     file_path: &std::path::Path,
     config: &Config,
@@ -272,13 +272,13 @@ async fn drive_event_driven_saves(
     reader.abort();
     let _ = reader.await;
 }
-const FINAL_SAVE_TIMEOUT_SECS: u64 = 5;
+pub(crate) const FINAL_SAVE_TIMEOUT_SECS: u64 = 5;
 /// Deterministic shutdown: stop the reactive save task (gracefully via the
 /// shutdown signal — the save loop closes its event connection so no reader
 /// thread stays blocked on a socket read — with an abort as the deadline
 /// fallback), then perform one final save under a timeout so a wedged niri
 /// IPC cannot hang the exit.
-async fn shutdown_with_final_save(
+pub(crate) async fn shutdown_with_final_save(
     mut save_task: JoinHandle<()>,
     shutdown_tx: watch::Sender<bool>,
     session_file: &Path,
