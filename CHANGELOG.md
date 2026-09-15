@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- Nothing yet.
+- **All-targets clippy gate**: the three test modules (`src/fake_niri.rs`, `src/tests.rs`, and proc.rs's inline `mod tests`) now carry scoped clippy exemptions, so `cargo clippy --all-features --all-targets` is fully clean — previously it hard-failed with 231 deny-level errors from tests legitimately using `unwrap`/`expect`/indexing/panics. CI's testless clippy invocation is unchanged, and the footgun denies (`todo`/`unimplemented`/`exit`/`unreachable`/`string_slice`/`panic_in_result_fn`) still apply inside tests.
 
 ### Fixed
 
