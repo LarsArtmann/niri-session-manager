@@ -28,9 +28,9 @@
 
 ## Low Impact
 
-| Task                                                                                                                                                  | Status    | Impact | Effort | Evidence                                                                                                                  |
-| ----------------------------------------------------------------------------------------------------------------------------------------------------- | --------- | ------ | ------ | ------------------------------------------------------------------------------------------------------------------------- |
-| Release flow: decide 0.5.1 vs 0.6.0 for the `[Unreleased]` section and bump `Cargo.toml` (needs a maintainer decision; SystemNix pins the flake)      | 🔴 `TODO` | Low    | Low    | `CHANGELOG.md` `[Unreleased]`; `Cargo.toml` still `0.5.0`                                                                 |
+| Task                                                                                                                                             | Status    | Impact | Effort | Evidence                                                  |
+| ------------------------------------------------------------------------------------------------------------------------------------------------ | --------- | ------ | ------ | --------------------------------------------------------- |
+| Release flow: decide 0.5.1 vs 0.6.0 for the `[Unreleased]` section and bump `Cargo.toml` (needs a maintainer decision; SystemNix pins the flake) | 🔴 `TODO` | Low    | Low    | `CHANGELOG.md` `[Unreleased]`; `Cargo.toml` still `0.5.0` |
 
 ---
 

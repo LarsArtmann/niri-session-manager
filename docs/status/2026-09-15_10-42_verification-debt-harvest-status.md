@@ -16,18 +16,18 @@
 
 ## Session at a glance
 
-| Metric                        | Value                                                                          |
-| ----------------------------- | ------------------------------------------------------------------------------ |
-| Verification-debt items paid  | 10 of 10 from the 09:47 report (f1–f10) + f39 + f49                            |
-| Focus-race pre-existence      | PROVEN (was "plausible, unverified"): 8/20 release + 7/20 debug probe failures |
-| New tests                     | 2 (example-session guard, zero-delay retry e2e) → suite 120 (+1 ignored)        |
-| Real bugs found by new tests  | 1 (`nix build` failed: source filter excluded `docs/example-session.json`)      |
-| Suite stability               | 118×5 loop, then 120×3 after the additions — all green                          |
-| CI-parity checks (first local run) | nixfmt / deadnix / statix / cargo-deny — all green                         |
-| Benchmark after spawn_blocking change | Unchanged: 100.4 ms/window (3.013s; was 3.011s)                        |
-| HARVEST                       | 09:47 report (f) routed: 6 TODO rows, ~12 ROADMAP ideas, stale entries fixed    |
-| Report annotations            | 24 items resolved inline in the 09:47 report (sections b/c/f)                  |
-| Git commits by me             | 0 (daemon made 6 heuristic commits this round — changesets stay entangled)      |
+| Metric                                | Value                                                                          |
+| ------------------------------------- | ------------------------------------------------------------------------------ |
+| Verification-debt items paid          | 10 of 10 from the 09:47 report (f1–f10) + f39 + f49                            |
+| Focus-race pre-existence              | PROVEN (was "plausible, unverified"): 8/20 release + 7/20 debug probe failures |
+| New tests                             | 2 (example-session guard, zero-delay retry e2e) → suite 120 (+1 ignored)       |
+| Real bugs found by new tests          | 1 (`nix build` failed: source filter excluded `docs/example-session.json`)     |
+| Suite stability                       | 118×5 loop, then 120×3 after the additions — all green                         |
+| CI-parity checks (first local run)    | nixfmt / deadnix / statix / cargo-deny — all green                             |
+| Benchmark after spawn_blocking change | Unchanged: 100.4 ms/window (3.013s; was 3.011s)                                |
+| HARVEST                               | 09:47 report (f) routed: 6 TODO rows, ~12 ROADMAP ideas, stale entries fixed   |
+| Report annotations                    | 24 items resolved inline in the 09:47 report (sections b/c/f)                  |
+| Git commits by me                     | 0 (daemon made 6 heuristic commits this round — changesets stay entangled)     |
 
 ---
 
@@ -63,7 +63,7 @@
   runtime accidentally serialized arrivals. The race premise (explicit FocusWindow can be
   followed by later spawns) holds pre- and post-change. Honest caveat: the fake does not
   model niri's auto-focus-on-spawn, so the final user-visible "focus lands wrong" step
-  still needs real hardware — the *ordering premise* is what is now proven.
+  still needs real hardware — the _ordering premise_ is what is now proven.
 - Worktree removed after evidence capture; probe not merged (it encodes a deliberately
   wrong assertion). Evidence recorded in the TODO_LIST focus row.
 
@@ -120,7 +120,7 @@
   hardening tests batch; CI test-count assertion + timing budget; stale-marker pruning on
   vanished session file; release-flow decision 0.5.1 vs 0.6.0) and the focus-race row
   upgraded with the probe evidence. Footer re-verified (120 tests, debt closed).
-- **ROADMAP.md**: v5-capture item updated (capture shipped, *application* remains raw);
+- **ROADMAP.md**: v5-capture item updated (capture shipped, _application_ remains raw);
   Q4 marked superseded by v5; new raw ideas filed (geometry application, watch-niri-upstream,
   multi-monitor soak, event-flood valve, `--print-config`, per-window outcome summary,
   export/import scope, backup compression, `--retry-base-delay` rename question, config
@@ -137,15 +137,15 @@
 
 ### 12. Final verification, on the final tree
 
-| Gate                                  | Result                                   |
-| ------------------------------------- | ---------------------------------------- |
-| `cargo fmt --all -- --check`          | clean                                    |
-| `cargo clippy --all-features`         | 0 errors, 0 warnings (CI form)           |
-| `cargo test` ×3                       | 120 passed, 1 ignored, 0 failed, each    |
-| `nix build`                           | green (after the default.nix filter fix) |
-| `nix flake check`                     | green (known upstream warning only)      |
-| `bash scripts/docs-citations.sh`      | all citations and links resolve          |
-| `nix fmt`                             | no changes needed                        |
+| Gate                             | Result                                   |
+| -------------------------------- | ---------------------------------------- |
+| `cargo fmt --all -- --check`     | clean                                    |
+| `cargo clippy --all-features`    | 0 errors, 0 warnings (CI form)           |
+| `cargo test` ×3                  | 120 passed, 1 ignored, 0 failed, each    |
+| `nix build`                      | green (after the default.nix filter fix) |
+| `nix flake check`                | green (known upstream warning only)      |
+| `bash scripts/docs-citations.sh` | all citations and links resolve          |
+| `nix fmt`                        | no changes needed                        |
 
 ---
 
@@ -189,9 +189,9 @@
 3. **Terminal ground truth (ROADMAP Q3)** — blocked on maintainer input. Unchanged.
 4. **Applying captured geometry at restore** — deliberately gated on the soak test.
 5. **The focus-steal fix itself** (final focus pass after all spawns settle) — the race is
-   now *proven* and logged, but the fix needs an implement-vs-accept decision; it touches
+   now _proven_ and logged, but the fix needs an implement-vs-accept decision; it touches
    restore ordering, which is behavior.
-6. **HARVEST of *this* report's section (f)** — the skill-mandated follow-up; deferred
+6. **HARVEST of _this_ report's section (f)** — the skill-mandated follow-up; deferred
    because the standing instruction for this round is "report, then WAIT".
 7. **`nix flake check --all-systems` (aarch64)** — still open; every `nix flake check`
    run prints the reminder.
@@ -208,7 +208,7 @@
 1. **I fabricated a statistic through carelessness, then caught it myself.** "121 tests"
    in two docs was a `--list` count (includes the ignored benchmark) reported as
    "passing". Caught at final-gate recount, fixed in-session, nothing shipped false — but
-   the verify-don't-trust rule applies to numbers I *generate*, not just numbers tools
+   the verify-don't-trust rule applies to numbers I _generate_, not just numbers tools
    hand me. A reader who trusted the first draft would have been misled by me.
 2. **I introduced the exact flake class this round existed to eliminate.** The new
    zero-delay test shipped with a `elapsed < 500ms` wall-clock assert and failed on its
@@ -218,7 +218,7 @@
    slightly faster that run, a latent flake would have entered the tree with my name on it.
 3. **I broke `nix build` with the guard test.** I verified the new test via cargo only
    and did not think about the Nix source filter when the test reads a repo file by path —
-   in this repo the cargo gate and the nix gate see *different file universes*, and I
+   in this repo the cargo gate and the nix gate see _different file universes_, and I
    knew that. The guard did its job (that is why it exists), but I should have predicted
    the sandbox divergence when introducing a path-reading test, not been told by CI.
 4. **Two wasted edit round-trips on "file modified since read" rejections** (fake_niri.rs,
@@ -347,7 +347,7 @@ commitments. **HARVEST of this list is pending your go-ahead (you said WAIT).**
 37. Broader harness window accessor. (ROADMAP.)
 38. Doc-comment the remaining harness getters for consistency with `window_app_id`.
 39. Restore-knowledge of focus across a multi-monitor focus history. (ROADMAP, pre-existing.)
-40. Dry-run output for humans *and* machine diffing. (ROADMAP, pre-existing.)
+40. Dry-run output for humans _and_ machine diffing. (ROADMAP, pre-existing.)
 41. systemd `Type=notify` readiness. (ROADMAP, pre-existing.)
 42. IPC health/status endpoint beyond `--health-check`. (ROADMAP, pre-existing.)
 43. Coverage reporting in CI. (ROADMAP, pre-existing.)
