@@ -165,6 +165,18 @@ pub fn resolve_child_process(
 }
 
 #[cfg(test)]
+// Deliberate lint exemption (see AGENTS.md "Testing"): same policy as
+// src/tests.rs for the inline proc-tree fixtures.
+#[allow(
+    clippy::pedantic,
+    clippy::nursery,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic,
+    clippy::arithmetic_side_effects,
+    clippy::as_conversions
+)]
 mod tests {
     use super::*;
     use std::fs;

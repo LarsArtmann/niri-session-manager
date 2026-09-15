@@ -1,3 +1,16 @@
+// Deliberate lint exemption (see AGENTS.md "Testing"): tests assert via
+// unwrap/expect/indexing/panics; the production-code denies do not apply here.
+#![allow(
+    clippy::pedantic,
+    clippy::nursery,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic,
+    clippy::arithmetic_side_effects,
+    clippy::as_conversions
+)]
+
 use crate::config::*;
 use crate::fake_niri::niri_workspace;
 use crate::restore::*;
