@@ -15,10 +15,10 @@
 
 ## High Impact
 
-| Task                                                                                                                           | Status       | Impact | Effort | Evidence                                                                                   |
-| ------------------------------------------------------------------------------------------------------------------------------ | ------------ | ------ | ------ | ------------------------------------------------------------------------------------------ |
-| Enable GitHub Actions for this fork (one-time UI click: repo → Actions → "I understand…enable"), then fire/verify the first run — CI has **never** executed here (fork workflows disabled by default; discovered 2026-09-15) | 🔴 `TODO`    | High   | Low    | AGENTS.md fork/Actions warning; `gh api …/actions/runs` → 0; `workflow_dispatch` trigger ready at `2a9aeab` |
-| Soak-test reactive saves + idempotent restore on real hardware (daily driver) — the fake server cannot prove niri-event timing | 🔴 `TODO`    | High   | Low    | `run_reactive_save_session` in `src/save.rs`; all integration tests use `src/fake_niri.rs` |
+| Task                                                                                                                                                                                                                         | Status    | Impact | Effort | Evidence                                                                                                    |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- | ------ | ------ | ----------------------------------------------------------------------------------------------------------- |
+| Enable GitHub Actions for this fork (one-time UI click: repo → Actions → "I understand…enable"), then fire/verify the first run — CI has **never** executed here (fork workflows disabled by default; discovered 2026-09-15) | 🔴 `TODO` | High   | Low    | AGENTS.md fork/Actions warning; `gh api …/actions/runs` → 0; `workflow_dispatch` trigger ready at `2a9aeab` |
+| Soak-test reactive saves + idempotent restore on real hardware (daily driver) — the fake server cannot prove niri-event timing                                                                                               | 🔴 `TODO` | High   | Low    | `run_reactive_save_session` in `src/save.rs`; all integration tests use `src/fake_niri.rs`                  |
 
 ## Medium Impact
 
