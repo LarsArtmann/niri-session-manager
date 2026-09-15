@@ -26,6 +26,12 @@
 | ------------------------------------------------------------------------------------------------------------------------------- | ------------ | ------ | ------ | -------------------------------------------------------------------------------- |
 | Terminal ground truth (ROADMAP Q3): confirm which terminals run daily and give those profiles must-not-regress soak coverage | 🔵 `BLOCKED` | Medium | Low    | profiles doc-verified 2026-09-04; real-binary coverage pending maintainer input |
 
+## Low Impact
+
+| Task                                                                                                                                                           | Status    | Impact | Effort | Evidence                                                                                                                   |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- | ------ | ------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| Focus steal race: a window spawned after the saved-focused one can take focus (concurrent spawns); consider a final focus pass once all spawns settle          | 🔴 `TODO` | Low    | Low    | `focus_window` runs per spawn task in `src/restore.rs` `spawn_single_window`; surfaced by the fake-IPC harness 2026-09-15    |
+
 ---
 
 _Verified 2026-09-15 against code at 118 passing tests (+1 ignored benchmark). Resolved this round (see `CHANGELOG.md` [Unreleased]): exponential restore-retry backoff, spawn I/O moved to tokio's blocking pool, session-format v5 window-layout capture, and the `src/main.rs` module split (behavior-frozen changeset). The previous list's remaining items are unchanged._
