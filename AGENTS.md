@@ -10,7 +10,7 @@ Context for AI sessions working on this repository.
 
 ```bash
 cargo build                      # build
-cargo test                       # full suite: unit + fake-IPC integration tests (118 + 1 ignored benchmark)
+cargo test                       # full suite: unit + fake-IPC integration tests (120 + 1 ignored benchmark)
 cargo clippy --all-features      # lint (CI runs this exact form; pedantic+nursery denies enforced)
 cargo fmt --all -- --check       # format check (CI enforces)
 nix build                        # build Nix package
@@ -88,7 +88,7 @@ Behavior-frozen module split (2026-09-15; formerly one ~3.7k-line `main.rs`):
 
 ## Testing
 
-- 118 tests + 1 `#[ignore]`d benchmark. Unit tests live in `src/tests.rs`; IPC integration tests live in `src/fake_niri.rs` against the fake server.
+- 120 tests + 1 `#[ignore]`d benchmark. Unit tests live in `src/tests.rs`; IPC integration tests live in `src/fake_niri.rs` against the fake server.
 - Never test against a live niri session; the fake server covers restore, save, shutdown (graceful + final save), idempotency, focus, retries, concurrency (global cap + per-app serialization), health, the event stream, the polling fallback with recovery, and `--save-only` end-to-end (see `layout_event_triggers_debounced_save`, `polling_fallback_saves_when_event_stream_refused_then_recovers`, `save_only_skips_boot_restore_and_runs_the_save_loop`).
 - Tests that touch `$NIRI_SOCKET` MUST hold `IPC_ENV_LOCK` (`FakeNiri::env()` / `FakeNiri::env_without_socket()`); parallel tests race on the environment otherwise.
 - **Never assert spawn arrival order or spawned window ids in harness tests.** Spawn requests legitimately interleave across apps (proven: the pre-2026-09-15 focus test passed only because inline blocking I/O accidentally serialized arrivals on the current-thread test runtime). Assert app identity via `FakeNiri::window_app_id(id)` instead. A 2026-09-15 audit of `fake_niri.rs`/`tests.rs` found no other order-coupled assertions; keep it that way. Same reasoning: after any concurrency-affecting change, run the full suite ~5× before declaring it green — one pass is not a verification for 2s-debounce, polling, and arrival-sensitive tests.

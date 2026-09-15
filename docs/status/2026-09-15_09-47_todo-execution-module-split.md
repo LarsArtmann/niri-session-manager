@@ -341,8 +341,8 @@ ones I would do first.
     proved this is a real risk: fn-diff was manual this time). (Low)
 49. ~~**HARVEST this report's list** into TODO_LIST/ROADMAP (skill-mandated; most of 18–47 are~~ done (executed 2026-09-15 — bounded items to TODO_LIST.md, ideas to ROADMAP.md, resolved items dropped)
     ~~ROADMAP fuel, not commitments). (Low)~~
-50. **Re-run this report's gates after items 1–10** and annotate it (docs-health ANNOTATE mode)
-    rather than rewriting it. (Low)
+50. ~~**Re-run this report's gates after items 1–10** and annotate it (docs-health ANNOTATE mode)~~ done (gates re-run 2026-09-15 — 120 passed x3, clippy clean, fmt clean, nix build, nix flake check, docs-citations; annotated inline)
+    ~~rather than rewriting it. (Low)~~
 
 ---
 

@@ -69,4 +69,4 @@
 
 ---
 
-_Verified against code 2026-09-15 (118 tests + 1 ignored benchmark, all green)._
+_Verified against code 2026-09-15 (120 tests + 1 ignored benchmark, all green)._
