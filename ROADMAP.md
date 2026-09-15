@@ -21,11 +21,16 @@ Raw ideas:
 - Output matching by EDID/position instead of name
   _Partially shipped: workspace-hosting output fallback. True position/EDID
   matching remains blocked — niri's IPC exposes no output positions._
-- Window size / column-width capture — upstream prerequisite landed: niri-ipc
-  exposes `Window.layout` (`WindowLayout`: tile/window size, scroll-layout
-  position) since v25.08, and our pinned crate (25.11) already carries it.
-  Verified against the resolved crate source 2026-09-06. Now needs a
-  session-format v5 design (see TODO_LIST).
+- Window size / column-width capture — _capture shipped 2026-09-15_ as
+  session-format v5 (`SavedWindowLayout` in `src/session.rs`; upstream
+  `Window.layout` verified against the resolved crate source). Still raw:
+  **applying** the captured geometry at restore — decide resize vs.
+  column-index navigation first, and gate on the real-hardware soak test
+  (the captured data currently has no consumer; see TODO_LIST for the
+  interim `--health-check` coverage row).
+- Watch niri upstream IPC for window-position application support before
+  building our own geometry applier
+- Multi-monitor soak scenarios: output rename/reorder while windows are open
 - Duplicate-window dedup on save (distinct from single-instance dedup)
 - Config hot-reload via file watching (inotify) — restart picks up changes today
 - Per-app restore delay tuning, `--migrate` session-file migration command
@@ -44,6 +49,7 @@ remains raw:
 
 - Layout-change coalescing beyond the fixed 2s debounce (adaptive quiet
   windows during interactive drags)
+- Event-flood safety valve in the save loop (cap saves/sec under window churn)
 - Restore knowledge of focus across a multi-monitor focus history
 
 ### 3. Operability
@@ -58,6 +64,11 @@ Raw ideas:
 - journald log-volume review (per-window restore info lines)
 - Dry-run output designed for humans _and_ for machine diffing
 - IPC health/status endpoint beyond the `--health-check` one-shot
+- `--print-config` support/debug mode (dump effective CLI+TOML config)
+- Per-window outcome summary log line at restore end
+- Export/import scope: decide and document whether the restore marker belongs in exports
+- Backup compression or retention-policy review
+- `--retry-base-delay` rename decision (the flag now takes a base delay, not a fixed delay; a rename is a breaking CLI change for SystemNix — coordinate before pinning)
 
 ### 4. Supply chain and packaging
 
@@ -65,6 +76,8 @@ Raw ideas:
 
 - Coverage reporting in CI
 - `nix flake check --all-systems` (aarch64)
+- Config TOML structural fuzzing beyond arbitrary-input no-panic
+- Broader harness window accessor if more tests need identity lookups
 
 ## Open Questions
 
@@ -87,6 +100,8 @@ record; rationale in the linked code):
    descriptive, not enforced: files from versions 1–3 still load via
    `#[serde(alias)]`; the bump marks the key-name change honestly.
    See `docs/example-session.json` for the current shape.
+   _Superseded 2026-09-15: format v5 added per-window layout capture; the
+   version is still descriptive and pre-v5 files keep loading._
 
 ## Non-goals
 

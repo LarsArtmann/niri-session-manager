@@ -137,29 +137,29 @@
    ghost-data risk this repo's own philosophy warns about.
 3. **AGENTS.md module-map line counts are approximations** (`~185`, `~570`, …). They were exact
    at write time and will drift on the next edit.
-4. **`--retry-delay` now lies slightly.** Its semantics changed to "base delay" but tunable CLI
-   flags have no `--help` text at all, so `--help` is silent; only README/module.nix state the
-   exponential behavior. A documentation split brain, and arguably a naming lie.
-5. **`--retry-delay 0` is unit-tested only** — no integration test exercises the immediate-retry
-   path through the retry loop.
-6. **The focus-steal race is "pre-existing" by reasoning, not by proof.** I did not run the
-   pre-change tree (worktree at an older commit) to demonstrate the race exists there too. The
-   claim is plausible (production ran multi-thread runtimes, where the race can occur) but
-   unverified — exactly the kind of claim this repo's `verify-external-claims` discipline exists
-   for.
-7. **`docs/example-session.json` has no guard.** jq validates the JSON and I hand-checked the
-   shape, but no test or script deserializes it — it can drift from `serde` silently. (AGENTS
-   lists it under the docs map without an owner for its validity.)
-8. **Benchmark doc not re-run.** The ignored `restore_burst` benchmark measures restore
-   throughput; the spawn path changed materially (spawn_blocking). `docs/benchmarks/restore-burst.md`
-   numbers may now be stale.
-9. **Nix evaluation warning observed, not recorded.** `nix flake check` emits
-   "nixfmt-rfc-style is now the same as pkgs.nixfmt" — judged an upstream/treefmt-nix
-   deprecation (the repo's `flake.nix` already uses the current `nixfmt.enable`), but it is not
-   written into AGENTS.md known-issues, so the next session will re-investigate it.
-10. **CI-parity checks not run locally.** `markdownlint`, `deadnix`, `statix check`, `cargo-deny`,
-    `cargo-audit` were not run this session (they live in the devshell / CI). The docs I edited
-    could trip markdownlint rules that I did not exercise.
+4. ~~**`--retry-delay` now lies slightly.** Its semantics changed to "base delay" but tunable CLI~~ done (--help text added to the five undocumented tunables (clap doc comments); verified in --help output)
+   ~~flags have no `--help` text at all, so `--help` is silent; only README/module.nix state the~~
+   ~~exponential behavior. A documentation split brain, and arguably a naming lie.~~
+5. ~~**`--retry-delay 0` is unit-tested only** — no integration test exercises the immediate-retry~~ done (zero_retry_delay_retries_immediately_after_a_failed_spawn covers the immediate-retry path end-to-end)
+   ~~path through the retry loop.~~
+6. ~~**The focus-steal race is "pre-existing" by reasoning, not by proof.** I did not run the~~ done (PROVEN 2026-09-15 at 8d2386b — old id-order assertion failed 8/20 (release) and 7/20 (debug) runs on a multi_thread runtime)
+   ~~pre-change tree (worktree at an older commit) to demonstrate the race exists there too. The~~
+   ~~claim is plausible (production ran multi-thread runtimes, where the race can occur) but~~
+   ~~unverified — exactly the kind of claim this repo's `verify-external-claims` discipline exists~~
+   ~~for.~~
+7. ~~**`docs/example-session.json` has no guard.** jq validates the JSON and I hand-checked the~~ done (example_session_doc_deserializes now guards the doc against serde drift)
+   ~~shape, but no test or script deserializes it — it can drift from `serde` silently. (AGENTS~~
+   ~~lists it under the docs map without an owner for its validity.)~~
+8. ~~**Benchmark doc not re-run.** The ignored `restore_burst` benchmark measures restore~~ done (re-run unchanged (100.4 ms/window); restore-burst.md carries the dated result)
+   ~~throughput; the spawn path changed materially (spawn_blocking). `docs/benchmarks/restore-burst.md`~~
+   ~~numbers may now be stale.~~
+9. ~~**Nix evaluation warning observed, not recorded.** `nix flake check` emits~~ done (recorded in AGENTS.md known-issues)
+   ~~"nixfmt-rfc-style is now the same as pkgs.nixfmt" — judged an upstream/treefmt-nix~~
+   ~~deprecation (the repo's `flake.nix` already uses the current `nixfmt.enable`), but it is not~~
+   ~~written into AGENTS.md known-issues, so the next session will re-investigate it.~~
+10. ~~**CI-parity checks not run locally.** `markdownlint`, `deadnix`, `statix check`, `cargo-deny`,~~ done (local CI-parity green — nixfmt --check, deadnix, statix check, cargo-deny (advisories/licenses/bans/sources))
+    ~~`cargo-audit` were not run this session (they live in the devshell / CI). The docs I edited~~
+    ~~could trip markdownlint rules that I did not exercise.~~
 
 ---
 
@@ -171,13 +171,13 @@
 3. **Terminal ground truth (ROADMAP Q3)** — which terminal profiles get must-not-regress status;
    blocked on maintainer input.
 4. **Applying captured geometry at restore** — deliberately gated on the soak test.
-5. **HARVEST of this report's section (f) into TODO_LIST/ROADMAP** — the skill-mandated follow-up;
-   not done because you asked me to wait for instructions after the report.
+5. ~~**HARVEST of this report's section (f) into TODO_LIST/ROADMAP** — the skill-mandated follow-up;~~ done (HARVEST executed 2026-09-15 into TODO_LIST.md and ROADMAP.md)
+   ~~not done because you asked me to wait for instructions after the report.~~
 6. **`nix flake check --all-systems` (aarch64)** — pre-existing ROADMAP item, untouched.
 7. **Explicit per-task commits** — needs authorization; nothing was committed by me.
-8. **`--help` text for the tunables** — never existed for `--retry-delay`/`--spawn-timeout`/etc.
-9. **markdownlint / deadnix / statix / cargo-deny local runs** — see (b)10.
-10. **Benchmark re-run** — see (b)8.
+8. ~~**`--help` text for the tunables** — never existed for `--retry-delay`/`--spawn-timeout`/etc.~~ done (--help now documents all tunables (output verified))
+9. ~~**markdownlint / deadnix / statix / cargo-deny local runs** — see (b)10.~~ done (nixfmt, deadnix, statix, cargo-deny all green locally 2026-09-15)
+10. ~~**Benchmark re-run** — see (b)8.~~ done (benchmark re-run 2026-09-15, unchanged (100.4 ms/window))
 
 ---
 
@@ -281,19 +281,19 @@ ones I would do first.
 
 ### Verification debt created this session
 
-1. **Loop the suite 5× and record the result** — establish that today's 118 are stable, not just
-   green once. (Low effort)
-2. **Audit `fake_niri.rs` for arrival-order coupling** beyond the one fixed test. (Low)
-3. **Prove or retract the "focus race is pre-existing" claim** — run a worktree at a pre-change
-   commit and try to trigger it. (Low–Medium)
-4. **`example_session_doc_deserializes()` test** over `docs/example-session.json`. (Low)
-5. **Re-run the ignored benchmark** and refresh `docs/benchmarks/restore-burst.md`. (Low)
-6. **Run markdownlint / deadnix / statix / cargo-deny / cargo-audit locally** (devshell) to match
-   CI before the next "done". (Low)
-7. **Add `#[arg(help = …)]` to all six tunables**, stating the exponential retry semantics. (Low)
-8. **Record the nixfmt-rfc-style deprecation** in AGENTS known-issues (upstream; accepted). (Low)
-9. **Add the harness rule to AGENTS**: never assert spawn arrival order or spawned ids. (Low)
-10. **Test the `--retry-delay 0` immediate-retry path end-to-end.** (Low)
+1. ~~**Loop the suite 5× and record the result** — establish that today's 118 are stable, not just~~ done (5 consecutive green runs 2026-09-15 (118 each; 121 after the new tests))
+   ~~green once. (Low effort)~~
+2. ~~**Audit `fake_niri.rs` for arrival-order coupling** beyond the one fixed test. (Low)~~ done (audit clean — no order-coupled assertions beyond the fixed focus test; rule recorded in AGENTS)
+3. ~~**Prove or retract the "focus race is pre-existing" claim** — run a worktree at a pre-change~~ done (proven at 8d2386b — 8/20 release, 7/20 debug failures on a multi_thread runtime)
+   ~~commit and try to trigger it. (Low–Medium)~~
+4. ~~**`example_session_doc_deserializes()` test** over `docs/example-session.json`. (Low)~~ done (example_session_doc_deserializes added)
+5. ~~**Re-run the ignored benchmark** and refresh `docs/benchmarks/restore-burst.md`. (Low)~~ done (re-run unchanged (100.4 ms/window); restore-burst.md dated)
+6. ~~**Run markdownlint / deadnix / statix / cargo-deny / cargo-audit locally** (devshell) to match~~ done (nixfmt, deadnix, statix, cargo-deny green locally (markdownlint is not a CI step; advisories covered by cargo-deny))
+   ~~CI before the next "done". (Low)~~
+7. ~~**Add `#[arg(help = …)]` to all six tunables**, stating the exponential retry semantics. (Low)~~ done (done as clap doc comments on the five undocumented tunables; --help output verified)
+8. ~~**Record the nixfmt-rfc-style deprecation** in AGENTS known-issues (upstream; accepted). (Low)~~ done (in AGENTS.md known-issues)
+9. ~~**Add the harness rule to AGENTS**: never assert spawn arrival order or spawned ids. (Low)~~ done (in AGENTS.md testing section)
+10. ~~**Test the `--retry-delay 0` immediate-retry path end-to-end.** (Low)~~ done (zero_retry_delay_retries_immediately_after_a_failed_spawn)
 
 ### Product work (real features / fixes)
 
@@ -328,7 +328,7 @@ ones I would do first.
 36. **Corrupt-backup + valid-session interplay test.** (Low)
 37. **Marker-pruning test when `boot_id` is unreadable.** (Low)
 38. **Extend the `--version` CI smoke** to a `--dry-run` no-op exit-code assertion. (Low)
-39. **CONTRIBUTING: document where tests live** in the post-split layout. (Low)
+39. ~~**CONTRIBUTING: document where tests live** in the post-split layout. (Low)~~ done (src/tests.rs is now named as the unit-test home)
 40. **ROADMAP dedupe pass** — done items keep accumulating in the ideas list. (Low)
 41. **AGENTS module-map drift**: drop the `~` counts or add a cheap check. (Low)
 42. **CHANGELOG release flow**: decide 0.5.1 vs 0.6.0 for `[Unreleased]` and bump Cargo.toml. (Low)
@@ -339,8 +339,8 @@ ones I would do first.
 47. **Suite timing budget** note/guard (~16s; sleeps are the failure mode). (Low)
 48. **Test-count assertion in CI** (fail if tests are silently dropped by a refactor — the split
     proved this is a real risk: fn-diff was manual this time). (Low)
-49. **HARVEST this report's list** into TODO_LIST/ROADMAP (skill-mandated; most of 18–47 are
-    ROADMAP fuel, not commitments). (Low)
+49. ~~**HARVEST this report's list** into TODO_LIST/ROADMAP (skill-mandated; most of 18–47 are~~ done (executed 2026-09-15 — bounded items to TODO_LIST.md, ideas to ROADMAP.md, resolved items dropped)
+    ~~ROADMAP fuel, not commitments). (Low)~~
 50. **Re-run this report's gates after items 1–10** and annotate it (docs-health ANNOTATE mode)
     rather than rewriting it. (Low)
 
