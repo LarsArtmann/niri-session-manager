@@ -203,6 +203,3 @@ pub(crate) async fn resolve_terminal_state(
         .flatten()
 }
 
-/// Atomic file write: temp file + fsync of file contents + rename + fsync of
-/// the parent directory. The parent-dir fsync is what makes the rename itself
-/// durable across a power loss; without it the machine can come back with the

@@ -15,9 +15,13 @@ mod tests;
 use anyhow::Result;
 use clap::Parser;
 use niri_ipc::{Request, Response};
-use tokio::signal::unix::{signal, SignalKind};
-use tokio::spawn;
-use tokio::sync::watch;
+use std::fs;
+use std::path::Path;
+use tokio::{
+    select,
+    signal::unix::{signal, SignalKind},
+    spawn, sync::watch,
+};
 use tracing::{info, warn};
 
 use crate::config::{load_app_config, AppConfig, Config, RunMode};
@@ -25,9 +29,10 @@ use crate::ipc::niri_send;
 use crate::restore::{
     get_boot_id, get_restore_marker_path, run_boot_restore, should_restore_on_boot,
 };
-use crate::save::shutdown_with_final_save;
+use crate::save::{reactive_save_session, shutdown_with_final_save};
 use crate::session::{
-    capture_session_json, get_session_file_path, load_session_windows, save_session_with_backup,
+    capture_session_json, get_session_file_path, load_session_windows, run_export, run_import,
+    save_session_with_backup,
 };
 
 async fn handle_shutdown_signals() -> Result<()> {

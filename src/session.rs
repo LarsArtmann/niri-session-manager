@@ -2,15 +2,18 @@
 //! files: capture from niri, atomic writes, backups, and export/import.
 
 use anyhow::{bail, Context, Result};
+use niri_ipc::{Window, Workspace};
 use chrono::Local;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Write;
+use std::os::unix::net::UnixStream;
+use std::time::UNIX_EPOCH;
 use std::path::{Path, PathBuf};
 use tokio::task::spawn_blocking;
 use tracing::{info, warn};
 
-use crate::config::AppConfig;
+use crate::config::{AppConfig, Config};
 use crate::ipc::{get_niri_windows, get_niri_workspaces};
 use crate::terminal::resolve_terminal_state;
 
@@ -560,5 +563,3 @@ pub(crate) fn run_import(archive_dir: &Path, session_file: &Path) -> Result<()> 
     Ok(())
 }
 
-/// Reports service health to the log: niri reachability (+ version),
-/// boot-gate state, and the session file's contents and age. Fails when niri

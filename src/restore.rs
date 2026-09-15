@@ -20,9 +20,11 @@ use crate::config::{AppConfig, Config, TerminalStateConfig};
 use crate::ipc::{get_niri_windows, get_niri_workspaces, niri_send};
 use crate::session::{
     dedupe_single_instance_windows, filter_skipped_windows, get_session_file_path,
+    save_session_with_terminal_state,
     load_session_windows, atomic_write, SavedWindow, SessionData, WorkspaceInfo,
 };
 use crate::terminal::build_spawn_command;
+pub(crate) const MAX_SPAWN_CONCURRENCY: usize = 5;
 
 pub(crate) const SAME_APP_RESTORE_WARN_THRESHOLD: usize = 10;
 pub(crate) fn get_boot_id() -> Option<String> {

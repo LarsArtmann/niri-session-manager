@@ -2,6 +2,7 @@
 //! config (`AppConfig`), with validation for both.
 
 use anyhow::{bail, Context, Result};
+use std::collections::HashMap;
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -57,7 +58,7 @@ pub(crate) struct TerminalStateConfig {
 }
 
 impl Default for TerminalStateConfig {
-    pub(crate) fn default() -> Self {
+    fn default() -> Self {
         Self {
             enabled: default_enabled(),
             terminal_app_ids: default_terminal_app_ids(),

@@ -5,11 +5,13 @@ use anyhow::{Context, Result};
 use niri_ipc::{Event, Reply, Request, Response};
 use std::io::{BufRead, BufReader, Write};
 use std::net::Shutdown;
+use std::path::Path;
 use std::os::unix::net::UnixStream;
 use std::time::{Duration, Instant};
 use tokio::select;
 use tokio::sync::watch;
 use tokio::task::spawn_blocking;
+use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use tracing::{error, info, warn};
 
