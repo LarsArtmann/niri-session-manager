@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Nothing yet.
+
+## [0.6.2] - 2026-09-16
+
+### Added
+
 - **`--protocol-probe` self-diagnosis mode**: round-trips a Version request, then reads the head of a fresh event-stream subscription and reports exactly which lines the pinned niri-ipc cannot parse — a seconds-check for protocol drift after a niri upgrade (`run_protocol_probe` in `src/main.rs`; live-verified against real niri unstable 2026-08-02: 6 burst lines, no drift).
 - **Health-check staleness warning**: `--health-check` now warns when the session file is older than 2 × the save interval — the in-service signature of a save loop that silently stopped saving (the F1 recurrence detector; `session_staleness_warning` in `src/main.rs`).
 - **Rate-limited stream-flapping summary**: every 10 event-stream deaths the save loop logs one WARN health summary (total deaths, rapid-death streak, next reconnect delay) so chronic flapping is visible without journal diving (`flapping_summary` in `src/save.rs`).
