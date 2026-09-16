@@ -191,7 +191,7 @@ The 18:47 probe manager (against my pathological fake socket) logged "Received S
 21. ~~Port the procedure into `scripts/soak-test.sh` (auto-detect `$NIRI_SOCKET`, scratch isolation, phases A–C, machine-checkable assertions) + short docs section.~~ done (2026-09-16)
 22. ~~Write the soak results into `docs/` (methodology + numbers, patterned on `docs/benchmarks/restore-burst.md`).~~ done (2026-09-16 — `docs/status/2026-09-16_09-58_soak-green-ipc-drift-and-terminal-capture-fixed.md`)
 23. ~~Run `bash scripts/docs-citations.sh` + markdownlint after doc edits.~~ done (2026-09-16 — citations green; markdownlint unavailable locally, CI covers)
-24. Longer unattended soak (30–60 min, or overnight via the deployed service post-upgrade) for durability evidence. ← open (tracked in TODO_LIST)
+24. ~~Longer unattended soak (30–60 min, or overnight via the deployed service post-upgrade) for durability evidence. ← open (tracked in TODO_LIST)~~ done (2026-09-16 — local 36-min --save-only leg green (see TODO_LIST durability row); overnight deployed-service leg remains post-upgrade)
 25. ~~Suspend-hook real test (`--save-once` on sleep.target) — adjacent TODO, now unblocked interest-wise. ← open~~ done (2026-09-16 — end-to-end --save-once test added (save_once_captures_the_live_state_and_exits vs the fake); the live sleep.target leg remains user-side)
 
 #### P2 — hardening and polish (observed tonight)
