@@ -192,12 +192,12 @@ The 18:47 probe manager (against my pathological fake socket) logged "Received S
 22. ~~Write the soak results into `docs/` (methodology + numbers, patterned on `docs/benchmarks/restore-burst.md`).~~ done (2026-09-16 — `docs/status/2026-09-16_09-58_soak-green-ipc-drift-and-terminal-capture-fixed.md`)
 23. ~~Run `bash scripts/docs-citations.sh` + markdownlint after doc edits.~~ done (2026-09-16 — citations green; markdownlint unavailable locally, CI covers)
 24. Longer unattended soak (30–60 min, or overnight via the deployed service post-upgrade) for durability evidence. ← open (tracked in TODO_LIST)
-25. Suspend-hook real test (`--save-once` on sleep.target) — adjacent TODO, now unblocked interest-wise. ← open
+25. ~~Suspend-hook real test (`--save-once` on sleep.target) — adjacent TODO, now unblocked interest-wise. ← open~~ done (2026-09-16 — end-to-end --save-once test added (save_once_captures_the_live_state_and_exits vs the fake); the live sleep.target leg remains user-side)
 
 #### P2 — hardening and polish (observed tonight)
 
-26. `--health-check`: warn when session file age exceeds N × `save_interval` (would have caught F2 from inside the service). ← open
-27. Stream-health counter/log every N reconnects (rate-limited) so flapping is visible without journal diving. ← open
+26. ~~`--health-check`: warn when session file age exceeds N × `save_interval` (would have caught F2 from inside the service). ← open~~ done (2026-09-16 — session_staleness_warning in src/main.rs, wired into --health-check, unit-tested)
+27. ~~Stream-health counter/log every N reconnects (rate-limited) so flapping is visible without journal diving. ← open~~ done (2026-09-16 — flapping_summary in src/save.rs: one WARN per 10 stream deaths (total, streak, next delay), cadence unit-tested)
 28. Consider `serde(deny_unknown_fields)`-style strictness tests for `SessionData` in the opposite direction (already property-tested; keep green). ← open
 29. ~~Record tonight's captured burst as `docs/` evidence (anonymized) for future protocol archaeology.~~ done (2026-09-16 — `src/testdata/niri-event-stream-2026-08-02.jsonl`, titles sanitized)
 30. README/FEATURES: document niri-version compatibility expectations for the fork (unstable-niri users need the fix; stable-niri users unaffected — verify against a stable niri if one is available). ← open
