@@ -126,20 +126,20 @@ The 18:47 probe manager (against my pathological fake socket) logged "Received S
 
 ### b) PARTIALLY DONE
 
-1. **Root cause**: bracketed to "first lines of the state-sync burst fail `Event` deserialization in niri-ipc 25.11" with the exact offending line/variant **not yet identified** (needs burst capture + fixture test). F3 framing oddity unresolved.
-2. **Soak evidence**: reactive-save timing assertions (debounce collapse, idle = zero saves, open/close saves) designed but unproven — no saves ever fired. Backoff timing *was* proven, accidentally, by the failure itself.
-3. This status report (done now); TODO_LIST/CHANGELOG/AGENTS.md updates **deliberately not done yet** — waiting for instructions per session rules.
+1. ~~**Root cause**: bracketed to "first lines of the state-sync burst fail `Event` deserialization in niri-ipc 25.11" with the exact offending line/variant **not yet identified** (needs burst capture + fixture test). F3 framing oddity unresolved.~~ done (2026-09-16 — byte-captured: burst line 7 `CastsChanged`, unknown to 25.11; F3 dissolved: the old probe sent unquoted, invalid JSON)
+2. ~~**Soak evidence**: reactive-save timing assertions (debounce collapse, idle = zero saves, open/close saves) designed but unproven — no saves ever fired. Backoff timing *was* proven, accidentally, by the failure itself.~~ done (2026-09-16 — all Phase A/B/C assertions green via `scripts/soak-test.sh`)
+3. ~~This status report (done now); TODO_LIST/CHANGELOG/AGENTS.md updates **deliberately not done yet** — waiting for instructions per session rules.~~ done (2026-09-16 — all three updated; v0.6.1 CHANGELOG section cut)
 
 ### c) NOT STARTED
 
-1. The fix itself (niri-ipc bump and/or tolerant event parsing, plus F5/F6 resilience fixes).
-2. Re-run of the soak green (Phases A) — blocked on the fix.
-3. Phase B: session-file-vs-live-windows validation (window/app/workspace/focus fidelity, v5 layout fields on real data).
-4. Phase C: idempotent restore proof on real hardware (script ready; precondition — a session file containing a since-closed carrier window — was never met because no saves happened).
-5. `scripts/soak-test.sh` in-repo encoding of the procedure (+ docs).
-6. Clippy (`--all-features --all-targets`) — deferred from baseline, still owed.
-7. Test-suite 5× loop, CI test-count bump, docs-citations run — all pending post-fix.
-8. v0.6.1 release + SystemNix re-pin coordination.
+1. ~~The fix itself (niri-ipc bump and/or tolerant event parsing, plus F5/F6 resilience fixes).~~ done (2026-09-16 — `=26.4.0` + tolerant parsing + F5 flush/fallback + F6 logging + F7 timeouts)
+2. ~~Re-run of the soak green (Phases A) — blocked on the fix.~~ done (2026-09-16 — green)
+3. ~~Phase B: session-file-vs-live-windows validation (window/app/workspace/focus fidelity, v5 layout fields on real data).~~ done (2026-09-16 — every live window matched app/workspace/focus/layout; ghostty terminal state captured)
+4. ~~Phase C: idempotent restore proof on real hardware (script ready; precondition — a session file containing a since-closed carrier window — was never met because no saves happened).~~ done (2026-09-16 — deficit restore spawns exactly the dead carrier, re-restore 0, boot gate skip)
+5. ~~`scripts/soak-test.sh` in-repo encoding of the procedure (+ docs).~~ done (2026-09-16)
+6. ~~Clippy (`--all-features --all-targets`) — deferred from baseline, still owed.~~ done (2026-09-16 — clean)
+7. ~~Test-suite 5× loop, CI test-count bump, docs-citations run — all pending post-fix.~~ done (2026-09-16 — ×5 green at 131 tests, CI `expected=131`, citations green; markdownlint not runnable locally, CI covers)
+8. v0.6.1 release + SystemNix re-pin coordination. ← repo side done 2026-09-16 (version + CHANGELOG cut); tag/push + re-pin + post-deploy verification remain open
 
 ### d) TOTALLY FUCKED UP (honest ledger)
 
@@ -153,58 +153,58 @@ The 18:47 probe manager (against my pathological fake socket) logged "Received S
 
 ### e) WHAT WE SHOULD IMPROVE (process, from this session)
 
-1. **Probe the protocol before soaking the product.** A 2-minute raw-socket probe (request framing + burst capture + offline deserialization against the pinned crate) should precede any live-hardware soak. It would have found F1 before the 4-minute soak and before any desktop disruption.
-2. **Baseline production first**: any hardware soak should start by recording the deployed system's current health (service PID, session file mtime, marker age) — both as a control and as free monitoring.
-3. **Never leave a background test process unverified**: every spawned test instance gets a liveness check at phase end (`pgrep -af` + expected-exit assertion). Tonight's stray flapped against the compositor all evening.
-4. **Log parse failures at the IPC boundary** (F6) — an unlogged deserialization error turned a 30-second diagnosis into an evening.
-5. **The fake must emulate the real handshake**: state-sync burst up-front (F4) belongs in `src/fake_niri.rs` as a mode, plus a "poison line" injection mode for unknown-variant resilience tests.
-6. **Fetch background-job output before moving on** — two probes tonight produced evidence I never read.
-7. **Clippy before "baseline done"**, or explicitly split the todo.
+1. ~~**Probe the protocol before soaking the product.** A 2-minute raw-socket probe (request framing + burst capture + offline deserialization against the pinned crate) should precede any live-hardware soak. It would have found F1 before the 4-minute soak and before any desktop disruption.~~ done (2026-09-16 — encoded in `scripts/soak-test.sh` + AGENTS.md session rules)
+2. ~~**Baseline production first**: any hardware soak should start by recording the deployed system's current health (service PID, session file mtime, marker age) — both as a control and as free monitoring.~~ done (2026-09-16 — AGENTS.md rule added)
+3. ~~**Never leave a background test process unverified**: every spawned test instance gets a liveness check at phase end (`pgrep -af` + expected-exit assertion). Tonight's stray flapped against the compositor all evening.~~ done (2026-09-16 — soak script ends with a leftover-process check)
+4. ~~**Log parse failures at the IPC boundary** (F6) — an unlogged deserialization error turned a 30-second diagnosis into an evening.~~ done (2026-09-16 — bounded WARN in the tolerant reader)
+5. ~~**The fake must emulate the real handshake**: state-sync burst up-front (F4) belongs in `src/fake_niri.rs` as a mode, plus a "poison line" injection mode for unknown-variant resilience tests.~~ done (2026-09-16 — `emit_state_sync_burst` + poison line + kill/close modes)
+6. ~~**Fetch background-job output before moving on** — two probes tonight produced evidence I never read.~~ done (2026-09-16 — lesson recorded in AGENTS.md)
+7. ~~**Clippy before "baseline done"**, or explicitly split the todo.~~ done (2026-09-16 — clippy ran clean before the fix work)
 
 ### f) NEXT TASKS (P0 → P2, ~40 items)
 
 **P0 — root cause and fix (blocking everything)**
 
-1. Re-run the byte-capture probe properly (fake socket that answers Windows/Workspaces too); log the manager's exact request bytes; settle F3.
-2. Capture the full live state-sync burst + one event each of focus/window-open/window-close/workspace-switch into fixture files.
-3. Write an in-repo deserialization test feeding those fixtures to niri-ipc 25.11 — identify the exact line/variant/field that fails.
-4. Check crates.io for the newest niri-ipc release; diff its `Event` enum against the captured fixtures; determine whether a plain version bump fixes F1 against niri unstable 2026-08-02.
-5. Decide fix policy (see question 1): bump-only vs unknown-variant-tolerant custom `Event` deserializer (skip-and-log) vs both.
-6. Implement the fix + fixture regression tests (real-niri captures checked in as test data).
-7. Fix F5: save-on-stream-death when events were seen; consider interval-fallback after N rapid stream deaths even if subscribe succeeds.
-8. Fix F6: log the offending raw line at WARN on reader death (bounded, e.g. first 200 chars).
-9. F7: regression test — manager against a socket that accepts but never replies; assert SIGTERM exits within grace.
-10. Rebuild; rerun soak Phase A on real hardware; all assertions green.
-11. `cargo clippy --all-features --all-targets` (owed baseline).
-12. Full test suite ×5 (timing-sensitive change rule); update fake server with burst mode; bump CI `expected` count for new tests.
-13. Update TODO_LIST (soak item resolution + new High items for F1/F5/F6), CHANGELOG `[Unreleased]`, AGENTS.md invariants ("fake must emulate state-sync burst", "probe before soak", "save-on-stream-death").
-14. Cut v0.6.1 (version, CHANGELOG section, tag) after user approval; user re-pins SystemNix.
-15. After upgrade: verify the deployed service writes session.json again (mtime fresh within minutes) — the real production acceptance check.
+1. ~~Re-run the byte-capture probe properly (fake socket that answers Windows/Workspaces too); log the manager's exact request bytes; settle F3.~~ done (2026-09-16 — manager sends valid quoted bare-string JSON; the 2026-09-15 probe sent unquoted invalid JSON)
+2. ~~Capture the full live state-sync burst + one event each of focus/window-open/window-close/workspace-switch into fixture files.~~ done (2026-09-16 — sanitized capture checked in as `src/testdata/niri-event-stream-2026-08-02.jsonl`)
+3. ~~Write an in-repo deserialization test feeding those fixtures to niri-ipc 25.11 — identify the exact line/variant/field that fails.~~ done (2026-09-16 — isolated burst line 7 `CastsChanged`; 26.4.0 parses all 46 lines)
+4. ~~Check crates.io for the newest niri-ipc release; diff its `Event` enum against the captured fixtures; determine whether a plain version bump fixes F1 against niri unstable 2026-08-02.~~ done (2026-09-16 — newest is 26.4.0, 2026-04-25; adds only the cast-event variants)
+5. ~~Decide fix policy (see question 1): bump-only vs unknown-variant-tolerant custom `Event` deserializer (skip-and-log) vs both.~~ done (2026-09-16 — both: exact pin + tolerance)
+6. ~~Implement the fix + fixture regression tests (real-niri captures checked in as test data).~~ done (2026-09-16 — fixture test + burst/poison harness tests)
+7. ~~Fix F5: save-on-stream-death when events were seen; consider interval-fallback after N rapid stream deaths even if subscribe succeeds.~~ done (2026-09-16 — mid-debounce flush + `RAPID_DEATH_FALLBACK_THRESHOLD`)
+8. ~~Fix F6: log the offending raw line at WARN on reader death (bounded, e.g. first 200 chars).~~ done (2026-09-16 — 3 logged + suppressed-count summary)
+9. ~~F7: regression test — manager against a socket that accepts but never replies; assert SIGTERM exits within grace.~~ done (2026-09-16 — 5s IPC timeouts + explicit exit + `service_shuts_down_when_ipc_accepts_but_never_replies`)
+10. ~~Rebuild; rerun soak Phase A on real hardware; all assertions green.~~ done (2026-09-16 — green, zero stream deaths)
+11. ~~`cargo clippy --all-features --all-targets` (owed baseline).~~ done (2026-09-16 — clean)
+12. ~~Full test suite ×5 (timing-sensitive change rule); update fake server with burst mode; bump CI `expected` count for new tests.~~ done (2026-09-16 — ×5 green at 131; CI `expected=131`)
+13. ~~Update TODO_LIST (soak item resolution + new High items for F1/F5/F6), CHANGELOG `[Unreleased]`, AGENTS.md invariants ("fake must emulate state-sync burst", "probe before soak", "save-on-stream-death").~~ done (2026-09-16)
+14. ~~Cut v0.6.1 (version, CHANGELOG section, tag) after user approval; user re-pins SystemNix.~~ done repo-side (2026-09-16 — version + CHANGELOG `[0.6.1]` cut); tag/push + SystemNix re-pin remain user actions
+15. After upgrade: verify the deployed service writes session.json again (mtime fresh within minutes) — the real production acceptance check. ← open, user-side post-deploy
 
 **P1 — finish the soak deliverables (post-fix)**
 
-16. Phase B: validate scratch session.json against `niri msg -j windows` — per-window app_id, workspace idx+name, focused id, `layout` (v5) presence on real data.
-17. Phase C: run `run-restore-proof.sh` — dry-run plan (dynamic count), real restore spawns exactly the dead carrier, immediate re-restore = "Restored 0", marker-present run = boot-gate skip.
-18. Confirm terminal-state recovery on real hardware: restored carrier re-runs its captured command inside ghostty (`sleep 45` observed in the restored window's process tree).
-19. Named-workspace restore matching on real hardware (this desktop has names: browser/chat/dev/main/media — first real coverage of name-first matching).
-20. Correlate `soak.log` save timestamps with `timeline.log` markers: debounce ≈2 s after last event, burst collapse to one save, 50 s idle = zero saves, no busy loop.
-21. Port the procedure into `scripts/soak-test.sh` (auto-detect `$NIRI_SOCKET`, scratch isolation, phases A–C, machine-checkable assertions) + short docs section.
-22. Write the soak results into `docs/` (methodology + numbers, patterned on `docs/benchmarks/restore-burst.md`).
-23. Run `bash scripts/docs-citations.sh` + markdownlint after doc edits.
-24. Longer unattended soak (30–60 min, or overnight via the deployed service post-upgrade) for durability evidence.
-25. Suspend-hook real test (`--save-once` on sleep.target) — adjacent TODO, now unblocked interest-wise.
+16. ~~Phase B: validate scratch session.json against `niri msg -j windows` — per-window app_id, workspace idx+name, focused id, `layout` (v5) presence on real data.~~ done (2026-09-16 — green)
+17. ~~Phase C: run `run-restore-proof.sh` — dry-run plan (dynamic count), real restore spawns exactly the dead carrier, immediate re-restore = "Restored 0", marker-present run = boot-gate skip.~~ done (2026-09-16 — green; encoded as soak Phase C)
+18. ~~Confirm terminal-state recovery on real hardware: restored carrier re-runs its captured command inside ghostty (`sleep 45` observed in the restored window's process tree).~~ done (2026-09-16 — ghostty capture verified; the restored KITTY carrier re-ran its captured command — two profiles covered)
+19. ~~Named-workspace restore matching on real hardware (this desktop has names: browser/chat/dev/main/media — first real coverage of name-first matching).~~ done (2026-09-16 — `[main]` matching exercised in real dry-runs)
+20. ~~Correlate `soak.log` save timestamps with `timeline.log` markers: debounce ≈2 s after last event, burst collapse to one save, 50 s idle = zero saves, no busy loop.~~ done (2026-09-16 — asserted in Phase A)
+21. ~~Port the procedure into `scripts/soak-test.sh` (auto-detect `$NIRI_SOCKET`, scratch isolation, phases A–C, machine-checkable assertions) + short docs section.~~ done (2026-09-16)
+22. ~~Write the soak results into `docs/` (methodology + numbers, patterned on `docs/benchmarks/restore-burst.md`).~~ done (2026-09-16 — `docs/status/2026-09-16_09-58_soak-green-ipc-drift-and-terminal-capture-fixed.md`)
+23. ~~Run `bash scripts/docs-citations.sh` + markdownlint after doc edits.~~ done (2026-09-16 — citations green; markdownlint unavailable locally, CI covers)
+24. Longer unattended soak (30–60 min, or overnight via the deployed service post-upgrade) for durability evidence. ← open (tracked in TODO_LIST)
+25. Suspend-hook real test (`--save-once` on sleep.target) — adjacent TODO, now unblocked interest-wise. ← open
 
 **P2 — hardening and polish (observed tonight)**
 
-26. `--health-check`: warn when session file age exceeds N × `save_interval` (would have caught F2 from inside the service).
-27. Stream-health counter/log every N reconnects (rate-limited) so flapping is visible without journal diving.
-28. Consider `serde(deny_unknown_fields)`-style strictness tests for `SessionData` in the opposite direction (already property-tested; keep green).
-29. Record tonight's captured burst as `docs/` evidence (anonymized) for future protocol archaeology.
-30. README/FEATURES: document niri-version compatibility expectations for the fork (unstable-niri users need the fix; stable-niri users unaffected — verify against a stable niri if one is available).
-31. ROADMAP Q3 partial: ghostty is observably a daily driver on this machine — its profile gets must-not-regress real-binary coverage first; ask which others (question 3 adjacent).
-32. Reconcile: `Cargo.toml` says `niri-ipc = "25.5.1"` but lock resolves 25.11.0 — pin exactly (`=`, per the crate's own recommendation) once the target version is chosen, so upstream patch releases can't shift IPC semantics silently.
-33. CI idea: a job that builds against the newest niri-ipc and runs the fixture tests, guarding future drift.
-34. Consider a `--protocol-probe` debug subcommand (dump raw request bytes + first N burst lines) so users can self-diagnose IPC breakage.
+26. `--health-check`: warn when session file age exceeds N × `save_interval` (would have caught F2 from inside the service). ← open
+27. Stream-health counter/log every N reconnects (rate-limited) so flapping is visible without journal diving. ← open
+28. Consider `serde(deny_unknown_fields)`-style strictness tests for `SessionData` in the opposite direction (already property-tested; keep green). ← open
+29. ~~Record tonight's captured burst as `docs/` evidence (anonymized) for future protocol archaeology.~~ done (2026-09-16 — `src/testdata/niri-event-stream-2026-08-02.jsonl`, titles sanitized)
+30. README/FEATURES: document niri-version compatibility expectations for the fork (unstable-niri users need the fix; stable-niri users unaffected — verify against a stable niri if one is available). ← open
+31. ROADMAP Q3 partial: ghostty is observably a daily driver on this machine — its profile gets must-not-regress real-binary coverage first; ask which others (question 3 adjacent). ← partially done (ghostty + kitty now real-verified 2026-09-16; other terminals still pending)
+32. ~~Reconcile: `Cargo.toml` says `niri-ipc = "25.5.1"` but lock resolves 25.11.0 — pin exactly (`=`, per the crate's own recommendation) once the target version is chosen, so upstream patch releases can't shift IPC semantics silently.~~ done (2026-09-16 — `niri-ipc = "=26.4.0"`)
+33. CI idea: a job that builds against the newest niri-ipc and runs the fixture tests, guarding future drift. ← open
+34. Consider a `--protocol-probe` debug subcommand (dump raw request bytes + first N burst lines) so users can self-diagnose IPC breakage. ← open
 
 ### g) QUESTIONS (cannot be answered from inside the session)
 

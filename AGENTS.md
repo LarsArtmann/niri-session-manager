@@ -36,6 +36,7 @@ cargo test restore_burst --release -- --ignored --nocapture   # benchmark (see d
 - **Never pipe test output through grep in background shells** — write to a file and tail it, or you debug blind.
 - Stale rust-analyzer diagnostics (e.g. the duplicate-attribute/`shell_escape_empty` warnings in the Rust sources) are cache lies; trust `cargo build`, not the LSP cache.
 - **Probe the protocol before soaking the product, and baseline production first** (2026-09-16 lessons): a 2-minute raw-socket probe (capture the burst, offline-deserialize against the pinned crate) plus one `ls` on the deployed session file's mtime would have found the F1 outage before any live-desktop disruption. `scripts/soak-test.sh` encodes the full procedure; verify every spawned test process exits (a wedged probe manager once flapped against the compositor for 7.5h).
+- **`nix build` only sees git-TRACKED files** (2026-09-16 lesson): the flake source is the git tree, so a new untracked file (e.g. `src/testdata/*.jsonl` required by `include_str!`) silently breaks the Nix build while `cargo build` stays green — stage new source files before evaluating nix. Also: `cmd | tail` pipelines mask cargo/nix failures (check `$?` immediately or avoid pipes on gates).
 
 ## Architecture
 
