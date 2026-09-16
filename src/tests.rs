@@ -1781,8 +1781,12 @@ fn session_staleness_warning_fires_only_past_two_save_intervals() {
         "warning states the 2x-interval threshold: {warning}"
     );
     assert!(
-        session_staleness_warning(Some(Duration::from_secs(3 * 60)), 1).is_none(),
-        "staleness scales with the configured interval"
+        session_staleness_warning(Some(Duration::from_secs(90)), 1).is_none(),
+        "staleness scales with the configured interval (90s <= 2x1min)"
+    );
+    assert!(
+        session_staleness_warning(Some(Duration::from_secs(130)), 1).is_some(),
+        "130s > 2x1min is stale"
     );
     assert!(
         session_staleness_warning(Some(Duration::from_secs(5 * 60)), 0).is_some(),
@@ -1843,7 +1847,7 @@ proptest! {
             }
         }
         // EOF after the line is stream death (Err), never a hang.
-        prop_assert!(read_event().unwrap().is_err());
+        prop_assert!(read_event().is_err());
     }
 }
 
