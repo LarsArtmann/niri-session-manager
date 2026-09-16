@@ -44,7 +44,7 @@ The daemon speaks niri's JSON IPC protocol, which evolves with niri releases. Tw
 - **Pinned wire types.** The `niri-ipc` dependency is pinned to an exact version (`=26.4.0`): request/response deserialization cannot silently change under a `cargo update` (the crate tracks niri's own releases and its maintainers recommend exact pins).
 - **Tolerant event reading.** The save loop treats an unparsable event-stream line as protocol drift, not a fatal error: it logs a bounded WARN with the raw line, conservatively treats it as layout-relevant, and keeps reading. An unknown event variant therefore cannot kill the stream — this exact failure mode was production-breaking before v0.6.1 (see `CHANGELOG.md`).
 
-If you run a niri build newer than the pin and see `unparsable event line` WARNs in the journal, saving still works; please report the raw line so the pin can be bumped. IPC requests carry a 5-second timeout, so a wedged or half-upgraded compositor cannot hang the service.
+If you run a niri build newer than the pin and see `unparsable event line` WARNs in the journal, saving still works; please report the raw line so the pin can be bumped. Run `niri-session-manager --protocol-probe` right after a niri upgrade — it round-trips a version request and inspects the first event-stream burst lines, reporting exactly which (if any) the pin cannot parse. IPC requests carry a 5-second timeout, so a wedged or half-upgraded compositor cannot hang the service.
 
 ## Usage
 
@@ -67,6 +67,7 @@ niri-session-manager [OPTIONS]
 --save-only                   Skip the boot restore and only run the save loop
 --save-once                   Save the current session once, then exit (used by the suspend hook)
 --health-check                Report niri reachability, boot-gate state, and session-file status, then exit
+--protocol-probe              Probe the live IPC protocol: version round-trip plus an event-stream burst-head drift report, then exit
 --export <DIR>                Copy session.json plus all backups into DIR, then exit
 --import <DIR>                Validate and import session.json (+ backups) from DIR, backing up the current session first
 ```
