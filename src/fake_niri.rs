@@ -30,6 +30,7 @@ use crate::restore::{
     RestoreOutcome, MAX_SPAWN_CONCURRENCY,
 };
 use crate::run_health_check;
+use crate::run_protocol_probe;
 use crate::run_service_loop;
 use crate::save::{
     drive_event_driven_saves, reactive_save_session, run_reactive_save_session,
@@ -900,6 +901,58 @@ async fn health_check_fails_when_niri_is_unreachable() {
         run_health_check(&session, &ipc_config()).await.is_err(),
         "health check without niri must fail"
     );
+}
+
+// --- M31: protocol probe + suspend hook (--save-once) ---
+
+#[tokio::test]
+async fn protocol_probe_reports_drift_from_a_poisoned_burst() {
+    let niri = FakeNiri::start();
+    let _env = niri.env();
+    niri.set_windows(vec![fake_window(1, "firefox")]);
+    niri.set_workspaces(vec![niri_workspace(1, 1, Some("dev"), "DP-1")]);
+    niri.emit_state_sync_burst();
+
+    let report = run_protocol_probe()
+        .await
+        .expect("the probe must succeed with a reachable niri; drift is a finding, not a failure");
+    assert!(
+        report.parsed_lines >= 6,
+        "the typed burst lines must parse: {report:?}"
+    );
+    assert_eq!(
+        report.unparsable_lines, 1,
+        "exactly the poison line may be unparsable: {report:?}"
+    );
+    assert!(
+        report.unparsable_samples[0].contains("NsmFutureEventProbe"),
+        "the sample identifies the drift: {:?}",
+        report.unparsable_samples
+    );
+
+    niri.close();
+}
+
+#[tokio::test]
+async fn save_once_captures_the_live_state_and_exits() {
+    let niri = FakeNiri::start();
+    let _env = niri.env();
+    niri.set_windows(vec![fake_window(7, "kitty")]);
+    niri.set_workspaces(vec![niri_workspace(1, 1, Some("main"), "DP-1")]);
+
+    let session = niri.temp_dir().join("session.json");
+    let mut config = ipc_config();
+    config.save_once = true;
+
+    run_service_loop(&session, &config, &AppConfig::default(), async { Ok(()) })
+        .await
+        .expect("--save-once must save once and exit cleanly (the suspend-hook path)");
+
+    let content = std::fs::read_to_string(&session)
+        .expect("--save-once must write the session file before exiting");
+    let saved: VersionedSession = serde_json::from_str(&content).unwrap();
+    assert_eq!(saved.windows.len(), 1);
+    assert_eq!(saved.windows[0].app_id, "kitty");
 }
 
 // --- M12: event-driven reactive saves ---
