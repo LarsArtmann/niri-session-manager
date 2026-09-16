@@ -199,7 +199,7 @@ fn probe_event_stream_head() -> Result<ProtocolProbeReport> {
     match request_reply(&mut stream, &Request::EventStream)
         .context("Failed to request event stream")?
     {
-        Reply::Ok(_) => {}
+        Reply::Ok(Response::Handled) => {}
         Reply::Err(msg) => anyhow::bail!("Niri refused the event stream: {msg}"),
         _ => anyhow::bail!("Unexpected reply to event-stream request"),
     }
@@ -218,6 +218,9 @@ fn probe_event_stream_head() -> Result<ProtocolProbeReport> {
                 report.unparsable_lines = report.unparsable_lines.saturating_add(1);
                 report.unparsable_samples.push(truncate_for_log(&line));
             }
+            // The reader contract has no Ok(None); treat it as stream end if
+            // that ever changes.
+            Ok(None) => break,
             Err(e)
                 if matches!(
                     e.kind(),
