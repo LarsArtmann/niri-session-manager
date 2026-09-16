@@ -61,11 +61,14 @@ async fn handle_shutdown_signals() -> Result<()> {
 pub const SESSION_STALENESS_INTERVALS: u32 = 2;
 
 /// Staleness decision for [`run_health_check`], extracted so tests can pin
-/// the threshold: `Some(warning)` when the session file is older than
+/// the threshold.
+///
+/// Returns `Some(warning)` when the session file is older than
 /// [`SESSION_STALENESS_INTERVALS`] × the save interval. A stale file means
 /// either an idle desktop (saves are event-driven) or a save loop that has
 /// silently stopped saving — the exact F1-recurrence signature the health
 /// check exists to surface.
+#[must_use]
 pub fn session_staleness_warning(
     age: Option<Duration>,
     save_interval_minutes: u64,
@@ -151,11 +154,13 @@ pub struct ProtocolProbeReport {
     pub unparsable_samples: Vec<String>,
 }
 
-/// Self-diagnosis for the protocol-drift failure class (F1): round-trips a
-/// Version request, then reads the head of a fresh event-stream subscription
-/// and reports which lines the pinned niri-ipc cannot parse. Drift is a
-/// finding, not a failure — the tolerant reader keeps saving regardless — so
-/// the probe only fails when niri itself is unreachable.
+/// Self-diagnosis for the protocol-drift failure class (F1).
+///
+/// Round-trips a Version request, then reads the head of a fresh
+/// event-stream subscription and reports which lines the pinned niri-ipc
+/// cannot parse. Drift is a finding, not a failure — the tolerant reader
+/// keeps saving regardless — so the probe only fails when niri itself is
+/// unreachable.
 async fn run_protocol_probe() -> Result<ProtocolProbeReport> {
     let version = match niri_send(Request::Version).await {
         Ok(Response::Version(v)) => v,
@@ -185,10 +190,11 @@ async fn run_protocol_probe() -> Result<ProtocolProbeReport> {
     Ok(report)
 }
 
-/// Reads up to [`PROBE_LINES`] event-stream lines under
-/// [`PROBE_READ_TIMEOUT`], classifying each as parsed or unparsable. A read
-/// timeout or stream end just ends the head read — the burst head is what
-/// the probe is after.
+/// Reads the event-stream head: up to [`PROBE_LINES`] lines under
+/// [`PROBE_READ_TIMEOUT`].
+///
+/// Classifies each line as parsed or unparsable. A read timeout or stream
+/// end just ends the head read — the burst head is what the probe is after.
 fn probe_event_stream_head() -> Result<ProtocolProbeReport> {
     use crate::save::{event_reader, truncate_for_log, ReadEvent};
     use std::io::BufReader;

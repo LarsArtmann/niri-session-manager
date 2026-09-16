@@ -55,10 +55,12 @@ pub const UNPARSED_LOG_CHAR_LIMIT: usize = 200;
 /// (each death still logs one INFO reconnect line).
 pub const FLAPPING_SUMMARY_EVERY: u32 = 10;
 
-/// Rate-limited stream-health summary: bumps the since-summary counter on
-/// every call and returns `Some(message)` only every
-/// [`FLAPPING_SUMMARY_EVERY`] deaths, resetting the counter. Extracted so
-/// tests can pin the cadence and reset behavior.
+/// Rate-limited stream-health summary for the reconnect loop.
+///
+/// Bumps the since-summary counter on every call and returns
+/// `Some(message)` only every [`FLAPPING_SUMMARY_EVERY`] deaths, resetting
+/// the counter. Extracted so tests can pin the cadence and reset behavior.
+#[must_use]
 pub fn flapping_summary(
     deaths_since_summary: &mut u32,
     total_deaths: u32,
