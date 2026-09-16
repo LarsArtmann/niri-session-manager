@@ -14,7 +14,7 @@ mod tests;
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use niri_ipc::{Request, Response};
+use niri_ipc::{Reply, Request, Response};
 use std::fs;
 use std::path::Path;
 use std::time::Duration;
@@ -23,11 +23,12 @@ use tokio::{
     signal::unix::{signal, SignalKind},
     spawn,
     sync::watch,
+    task::spawn_blocking,
 };
 use tracing::{info, warn};
 
 use crate::config::{load_app_config, AppConfig, Config, RunMode};
-use crate::ipc::niri_send;
+use crate::ipc::{niri_send, open_niri_socket, request_reply};
 use crate::restore::{
     get_boot_id, get_restore_marker_path, run_boot_restore, should_restore_on_boot,
 };
@@ -135,6 +136,104 @@ async fn run_health_check(session_file: &Path, config: &Config) -> Result<()> {
     info!("health check passed");
     Ok(())
 }
+/// How many event-stream lines the protocol probe inspects before summarizing.
+pub const PROBE_LINES: usize = 20;
+/// How long the protocol probe waits for further burst lines before stopping
+/// (a fresh subscription always gets the up-front state-sync burst first, so
+/// a healthy niri delivers lines immediately).
+pub const PROBE_READ_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// What [`run_protocol_probe`] found on the live niri IPC socket.
+#[derive(Debug, Default)]
+pub struct ProtocolProbeReport {
+    pub parsed_lines: usize,
+    pub unparsable_lines: usize,
+    pub unparsable_samples: Vec<String>,
+}
+
+/// Self-diagnosis for the protocol-drift failure class (F1): round-trips a
+/// Version request, then reads the head of a fresh event-stream subscription
+/// and reports which lines the pinned niri-ipc cannot parse. Drift is a
+/// finding, not a failure — the tolerant reader keeps saving regardless — so
+/// the probe only fails when niri itself is unreachable.
+async fn run_protocol_probe() -> Result<ProtocolProbeReport> {
+    let version = match niri_send(Request::Version).await {
+        Ok(Response::Version(v)) => v,
+        Ok(_) => anyhow::bail!("niri replied, but not with its version"),
+        Err(e) => anyhow::bail!("niri IPC unreachable: {e}"),
+    };
+    info!("protocol probe: version round-trip OK (niri {version})");
+
+    let report = spawn_blocking(probe_event_stream_head)
+        .await
+        .context("protocol probe task join error")??;
+    let total = report.parsed_lines.saturating_add(report.unparsable_lines);
+    if report.unparsable_lines == 0 {
+        info!(
+            "protocol probe: {total} burst line(s), all parsed by the pinned niri-ipc — no drift"
+        );
+    } else {
+        warn!(
+            "protocol probe: PROTOCOL DRIFT — {} of {total} line(s) unparsable by the pinned \
+             niri-ipc; saving still works via the tolerant reader, but the pin should be bumped",
+            report.unparsable_lines
+        );
+        for sample in &report.unparsable_samples {
+            warn!("protocol probe: unparsable: {sample}");
+        }
+    }
+    Ok(report)
+}
+
+/// Reads up to [`PROBE_LINES`] event-stream lines under
+/// [`PROBE_READ_TIMEOUT`], classifying each as parsed or unparsable. A read
+/// timeout or stream end just ends the head read — the burst head is what
+/// the probe is after.
+fn probe_event_stream_head() -> Result<ProtocolProbeReport> {
+    use crate::save::{event_reader, truncate_for_log, ReadEvent};
+    use std::io::BufReader;
+
+    let (stream, _shutdown_handle) =
+        open_niri_socket().context("Failed to connect to Niri IPC socket")?;
+    let mut stream = BufReader::new(stream);
+    match request_reply(&mut stream, &Request::EventStream)
+        .context("Failed to request event stream")?
+    {
+        Reply::Ok(_) => {}
+        Reply::Err(msg) => anyhow::bail!("Niri refused the event stream: {msg}"),
+        _ => anyhow::bail!("Unexpected reply to event-stream request"),
+    }
+    stream
+        .get_mut()
+        .set_read_timeout(Some(PROBE_READ_TIMEOUT))
+        .context("Failed to set the probe read timeout")?;
+    let mut read_event = event_reader(stream);
+    let mut report = ProtocolProbeReport::default();
+    for _ in 0..PROBE_LINES {
+        match read_event() {
+            Ok(Some(ReadEvent::Event(_))) => {
+                report.parsed_lines = report.parsed_lines.saturating_add(1);
+            }
+            Ok(Some(ReadEvent::Unparsed(line))) => {
+                report.unparsable_lines = report.unparsable_lines.saturating_add(1);
+                report.unparsable_samples.push(truncate_for_log(&line));
+            }
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::WouldBlock
+                        | std::io::ErrorKind::TimedOut
+                        | std::io::ErrorKind::UnexpectedEof
+                ) =>
+            {
+                break;
+            }
+            Err(e) => return Err(e).context("reading the event-stream head"),
+        }
+    }
+    Ok(report)
+}
+
 /// Mode dispatch plus the long-running service loop. Split out of `main` so
 /// the fake-IPC harness can drive it end-to-end with an injected shutdown
 /// signal.
@@ -156,6 +255,10 @@ pub(crate) async fn run_service_loop(
     match config.run_mode() {
         RunMode::HealthCheck => {
             run_health_check(session_file, config).await?;
+            return Ok(());
+        }
+        RunMode::ProtocolProbe => {
+            run_protocol_probe().await?;
             return Ok(());
         }
         RunMode::SaveOnce => {

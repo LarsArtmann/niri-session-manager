@@ -233,6 +233,18 @@ pub struct Config {
     )]
     pub health_check: bool,
 
+    /// Probe the live IPC protocol: version round-trip, then inspect the first
+    /// event-stream burst lines for unparsable (protocol-drift) events, and exit
+    #[arg(
+        long,
+        conflicts_with = "restore",
+        conflicts_with = "save_only",
+        conflicts_with = "save_once",
+        conflicts_with = "dry_run",
+        conflicts_with = "health_check"
+    )]
+    pub protocol_probe: bool,
+
     /// Copy session.json plus all backups into DIR (created if missing), then exit
     #[arg(long, value_name = "DIR")]
     pub export_to: Option<PathBuf>,
@@ -254,6 +266,8 @@ pub enum RunMode {
     SaveOnce,
     /// Check health, then exit.
     HealthCheck,
+    /// Inspect the live IPC protocol for drift, then exit.
+    ProtocolProbe,
 }
 impl Config {
     pub const fn run_mode(&self) -> RunMode {
@@ -265,6 +279,8 @@ impl Config {
             RunMode::SaveOnce
         } else if self.health_check {
             RunMode::HealthCheck
+        } else if self.protocol_probe {
+            RunMode::ProtocolProbe
         } else {
             RunMode::Normal
         }

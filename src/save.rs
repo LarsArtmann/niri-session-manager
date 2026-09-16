@@ -119,7 +119,7 @@ pub enum ReadEvent {
 
 /// Bounded for logging: an unparsable line can be a huge `WindowsChanged`
 /// dump, and the WARN log only needs enough to identify the variant.
-fn truncate_for_log(line: &str) -> String {
+pub fn truncate_for_log(line: &str) -> String {
     line.chars().take(UNPARSED_LOG_CHAR_LIMIT).collect()
 }
 

@@ -607,6 +607,7 @@ fn ipc_config() -> Config {
         save_only: false,
         save_once: false,
         health_check: false,
+        protocol_probe: false,
         export_to: None,
         import_from: None,
     }
