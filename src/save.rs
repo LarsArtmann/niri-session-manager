@@ -50,6 +50,33 @@ pub const RECONNECT_HEALTHY_STREAM: Duration = Duration::from_secs(5);
 pub const MAX_UNPARSED_LOG_PER_CONNECTION: usize = 3;
 /// Length limit (chars) for logging raw unparsable event lines.
 pub const UNPARSED_LOG_CHAR_LIMIT: usize = 200;
+/// Emit a stream-health summary at most once per this many stream deaths, so
+/// chronic flapping stays visible in the journal without per-death noise
+/// (each death still logs one INFO reconnect line).
+pub const FLAPPING_SUMMARY_EVERY: u32 = 10;
+
+/// Rate-limited stream-health summary: bumps the since-summary counter on
+/// every call and returns `Some(message)` only every
+/// [`FLAPPING_SUMMARY_EVERY`] deaths, resetting the counter. Extracted so
+/// tests can pin the cadence and reset behavior.
+pub fn flapping_summary(
+    deaths_since_summary: &mut u32,
+    total_deaths: u32,
+    rapid_death_streak: u32,
+    next_delay: Duration,
+) -> Option<String> {
+    *deaths_since_summary = deaths_since_summary.saturating_add(1);
+    if *deaths_since_summary < FLAPPING_SUMMARY_EVERY {
+        return None;
+    }
+    *deaths_since_summary = 0;
+    Some(format!(
+        "niri event stream health: {total_deaths} deaths so far, current rapid-death streak \
+         {rapid_death_streak} (periodic-fallback threshold {RAPID_DEATH_FALLBACK_THRESHOLD}), \
+         next reconnect in {}s",
+        next_delay.as_secs_f32()
+    ))
+}
 
 /// Doubles the reconnect delay, capped so a flapping niri cannot pin the save
 /// loop into a hot reconnect cycle.
@@ -122,6 +149,8 @@ pub async fn run_reactive_save_session(
     let debounce = Duration::from_secs(SAVE_DEBOUNCE_SECS);
     let mut reconnect_delay = RECONNECT_DELAY_INITIAL;
     let mut rapid_deaths: u32 = 0;
+    let mut total_deaths: u32 = 0;
+    let mut deaths_since_summary: u32 = 0;
     info!(
         "Starting reactive save task (niri event stream, debounce {}s, fallback interval {} min)",
         SAVE_DEBOUNCE_SECS,
@@ -189,12 +218,21 @@ pub async fn run_reactive_save_session(
             break;
         }
         info!("Niri event stream ended; reconnecting");
+        total_deaths = total_deaths.saturating_add(1);
         if stream_started.elapsed() >= RECONNECT_HEALTHY_STREAM {
             reconnect_delay = RECONNECT_DELAY_INITIAL;
             rapid_deaths = 0;
         } else {
             rapid_deaths = rapid_deaths.saturating_add(1);
             reconnect_delay = next_reconnect_delay(reconnect_delay);
+        }
+        if let Some(summary) = flapping_summary(
+            &mut deaths_since_summary,
+            total_deaths,
+            rapid_deaths,
+            reconnect_delay,
+        ) {
+            warn!("{summary}");
         }
         if rapid_deaths < RAPID_DEATH_FALLBACK_THRESHOLD {
             tokio::select! {

@@ -17,6 +17,7 @@ use clap::Parser;
 use niri_ipc::{Request, Response};
 use std::fs;
 use std::path::Path;
+use std::time::Duration;
 use tokio::{
     select,
     signal::unix::{signal, SignalKind},
@@ -54,10 +55,41 @@ async fn handle_shutdown_signals() -> Result<()> {
     }
     Ok(())
 }
+/// How many multiples of the fallback save interval the session file may age
+/// before the health check calls it stale.
+pub const SESSION_STALENESS_INTERVALS: u32 = 2;
+
+/// Staleness decision for [`run_health_check`], extracted so tests can pin
+/// the threshold: `Some(warning)` when the session file is older than
+/// [`SESSION_STALENESS_INTERVALS`] × the save interval. A stale file means
+/// either an idle desktop (saves are event-driven) or a save loop that has
+/// silently stopped saving — the exact F1-recurrence signature the health
+/// check exists to surface.
+pub fn session_staleness_warning(
+    age: Option<Duration>,
+    save_interval_minutes: u64,
+) -> Option<String> {
+    let age = age?;
+    let interval = save_interval_minutes.max(1);
+    let threshold_minutes = interval.saturating_mul(u64::from(SESSION_STALENESS_INTERVALS));
+    if age <= Duration::from_secs(threshold_minutes.saturating_mul(60)) {
+        return None;
+    }
+    Some(format!(
+        "session file is stale: last written {}m{}s ago, more than {threshold_minutes} min \
+         ({} × the {interval}-min save interval). Either the desktop has been idle \
+         (saves are event-driven) or the save loop is unhealthy — check recent logs \
+         for event-stream deaths or unparsable-event warnings",
+        age.as_secs().div_euclid(60),
+        age.as_secs().rem_euclid(60),
+        SESSION_STALENESS_INTERVALS,
+    ))
+}
+
 /// Reports service health to the log: niri reachability (+ version),
 /// boot-gate state, and the session file's contents and age. Fails when niri
 /// is unreachable — everything else is informational.
-async fn run_health_check(session_file: &Path) -> Result<()> {
+async fn run_health_check(session_file: &Path, config: &Config) -> Result<()> {
     let version = match niri_send(Request::Version).await {
         Ok(Response::Version(v)) => v,
         Ok(_) => anyhow::bail!("niri replied, but not with its version"),
@@ -74,25 +106,28 @@ async fn run_health_check(session_file: &Path) -> Result<()> {
     }
 
     if let Some(windows) = load_session_windows(session_file)? {
-        let age = fs::metadata(session_file)
+        let elapsed = fs::metadata(session_file)
             .and_then(|m| m.modified())
             .ok()
-            .and_then(|m| m.elapsed().ok())
-            .map_or_else(
-                || "unknown age".to_string(),
-                |d| {
-                    format!(
-                        "{}m{}s ago",
-                        d.as_secs().div_euclid(60),
-                        d.as_secs().rem_euclid(60)
-                    )
-                },
-            );
+            .and_then(|m| m.elapsed().ok());
+        let age = elapsed.map_or_else(
+            || "unknown age".to_string(),
+            |d| {
+                format!(
+                    "{}m{}s ago",
+                    d.as_secs().div_euclid(60),
+                    d.as_secs().rem_euclid(60)
+                )
+            },
+        );
         let with_layout = windows.iter().filter(|w| w.layout.is_some()).count();
         info!(
             "session file: {} window(s), {with_layout} with captured layout, last written {age}",
             windows.len()
         );
+        if let Some(warning) = session_staleness_warning(elapsed, config.save_interval) {
+            warn!("{warning}");
+        }
     } else {
         info!("session file: none yet (a restore or save creates it)");
     }
@@ -120,7 +155,7 @@ pub(crate) async fn run_service_loop(
 
     match config.run_mode() {
         RunMode::HealthCheck => {
-            run_health_check(session_file).await?;
+            run_health_check(session_file, config).await?;
             return Ok(());
         }
         RunMode::SaveOnce => {

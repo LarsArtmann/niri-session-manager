@@ -882,7 +882,7 @@ async fn health_check_passes_with_a_live_niri() {
     let session = niri.temp_dir().join("session.json");
     save_session_file(&session, &[saved_win(1, "firefox", "dev", 1, false)]);
 
-    run_health_check(&session)
+    run_health_check(&session, &ipc_config())
         .await
         .expect("health check must pass with reachable niri and a valid session file");
 }
@@ -896,7 +896,7 @@ async fn health_check_fails_when_niri_is_unreachable() {
     // The lock prevents parallel tests from re-pointing the env at their fakes.
     let _env = FakeNiri::env_without_socket();
     assert!(
-        run_health_check(&session).await.is_err(),
+        run_health_check(&session, &ipc_config()).await.is_err(),
         "health check without niri must fail"
     );
 }
