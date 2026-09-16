@@ -18,7 +18,11 @@ pub fn default_terminal_app_ids() -> Vec<String> {
         "foot".into(),
         "org.wezfurlong.wezterm".into(),
         "com.mitchellh.ghostty".into(),
+        // Both spellings: niri reports alacritty's app_id as "Alacritty"
+        // (capital A — verified live 2026-09-16); lowercase covers builds
+        // that report it verbatim from the binary name.
         "alacritty".into(),
+        "Alacritty".into(),
     ]
 }
 pub fn default_shell_names() -> Vec<String> {
@@ -119,7 +123,7 @@ apps = [
 # Terminal state recovery — restore running commands inside terminals
 [terminal_state]
 enabled = true
-terminal_app_ids = ["kitty", "foot", "org.wezfurlong.wezterm", "com.mitchellh.ghostty", "alacritty"]
+terminal_app_ids = ["kitty", "foot", "org.wezfurlong.wezterm", "com.mitchellh.ghostty", "alacritty", "Alacritty"]
 shell_names = ["fish", "bash", "zsh", "sh", "dash", "-fish", "-bash", "-zsh", "-sh", "sudo", "doas"]
 helper_names = ["kitten"]
 max_walk_depth = 20

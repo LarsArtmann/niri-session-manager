@@ -612,6 +612,12 @@ fn config_default_values() {
     let c = TerminalStateConfig::default();
     assert!(c.enabled);
     assert!(c.terminal_app_ids.contains(&"kitty".to_string()));
+    // niri reports alacritty's app_id capitalized; both spellings must be
+    // recognized or alacritty windows never capture terminal state and
+    // restore falls back to spawning the (nonexistent) binary "Alacritty"
+    // (found live 2026-09-16 via the CARRIER=alacritty soak).
+    assert!(c.terminal_app_ids.contains(&"Alacritty".to_string()));
+    assert!(c.terminal_app_ids.contains(&"alacritty".to_string()));
     assert!(c.shell_names.contains(&"fish".to_string()));
     assert!(c.helper_names.contains(&"kitten".to_string()));
     assert_eq!(c.max_walk_depth, 20);
