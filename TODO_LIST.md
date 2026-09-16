@@ -19,10 +19,10 @@ _(none — the real-hardware soak resolved 2026-09-16 together with the IPC-drif
 
 ## Medium Impact
 
-| Task                                                                                                                         | Status       | Impact | Effort | Evidence                                                                        |
-| ---------------------------------------------------------------------------------------------------------------------------- | ------------ | ------ | ------ | ------------------------------------------------------------------------------- |
+| Task                                                                                                                                                                                           | Status       | Impact | Effort | Evidence                                                                                                                                |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ | ------ | ------ | --------------------------------------------------------------------------------------------------------------------------------------- |
 | Terminal ground truth (ROADMAP Q3): ghostty now has real-binary soak coverage (capture + carrier restore, 2026-09-16); confirm which OTHER terminals run daily and give them the same coverage | 🔵 `BLOCKED` | Medium | Low    | profiles doc-verified 2026-09-04; ghostty verified live 2026-09-16 via `scripts/soak-test.sh`; other terminals pending maintainer input |
-| Unattended durability soak: 30–60 min (or overnight via the deployed service after the v0.6.1 upgrade) accumulating long-run evidence that the fix holds | 🔴 `TODO` | Medium | Low    | `scripts/soak-test.sh` covers ~4 min interactively; longer windows need the deployed service |
+| Unattended durability soak: 30–60 min (or overnight via the deployed service after the v0.6.1 upgrade) accumulating long-run evidence that the fix holds                                       | 🔴 `TODO`    | Medium | Low    | `scripts/soak-test.sh` covers ~4 min interactively; longer windows need the deployed service                                            |
 
 ## Low Impact
 

@@ -10,7 +10,7 @@
 
 ## Executive summary
 
-The daily driver runs `niri unstable 2026-08-02 (feb3e43)`. This repo pins `niri-ipc = "25.5.1"` (Cargo.lock resolves 25.11.0). On the live compositor, the reactive save loop's event stream subscription **succeeds, then dies ~2 ms later**, flapping forever on the reconnect backoff (1→2→4→8→16→30 s, all observed). Because each subscribe *succeeds*, the polling-fallback path never engages, and because the reader dies before the debounce settles, **no event-driven save ever fires**. The only session write all soak was the shutdown final save.
+The daily driver runs `niri unstable 2026-08-02 (feb3e43)`. This repo pins `niri-ipc = "25.5.1"` (Cargo.lock resolves 25.11.0). On the live compositor, the reactive save loop's event stream subscription **succeeds, then dies ~2 ms later**, flapping forever on the reconnect backoff (1→2→4→8→16→30 s, all observed). Because each subscribe _succeeds_, the polling-fallback path never engages, and because the reader dies before the debounce settles, **no event-driven save ever fires**. The only session write all soak was the shutdown final save.
 
 This is not test-only: the deployed `niri-session-manager 0.4.1` service (PID 5115, up since boot 09:37:38 on 2026-09-15) shows the identical signature — `~/.local/share/niri-session-manager/session.json` last written **2026-09-14 17:21** (~33 h stale by 02:10), all 5 backups dated 2026-09-14, while request/reply IPC demonstrably still works (the boot restore ran and wrote its marker at 09:37).
 
@@ -20,19 +20,19 @@ Near-certain root cause (byte-level confirmation still pending, see Open Questio
 
 ## Timeline of the session (all times 2026-09-15 CEST unless noted)
 
-| Time | Action | Result |
-| --- | --- | --- |
-| ~18:35 | Environment discovery: `pgrep niri`, `/proc/5115/environ` | Daily driver confirmed: niri PID 4867, deployed manager 0.4.1 PID 5115, socket `/run/user/1000/niri.wayland-1.4867.sock` (shell had no `$NIRI_SOCKET`; recovered from the service's environ) |
-| ~18:36 | Live state survey | 4 windows (ghostty ×2 ids 2,3; helium ×2 ids 4,5), all on workspace 4 "main"; 6 named workspaces. `systemctl`/journal blocked by CLI security policy — worked from `/proc` instead |
-| ~18:37–18:41 | Read `src/save.rs`, `src/restore.rs`, `src/config.rs`, `src/session.rs`, `src/main.rs`; confirmed scratch isolation via `XDG_DATA_HOME`/`XDG_CONFIG_HOME`, `--dry-run` writes nothing, marker-gated `--restore`, silent skip of byte-identical saves | Full test design possible without touching the deployed service's files |
-| ~18:37 | Baseline: `cargo build --release` (v0.6.0, 4 m 05 s), `cargo fmt --all -- --check` | Both green. **Clippy deferred — still not run** |
-| ~18:42 | Spawn probe `niri msg action spawn -- ghostty -e sleep 8` | OK (self-closing window blip on the live desktop) |
-| 18:42–18:45 | **Soak Phase A** ran: `/tmp/nsm-soak/run-soak.sh` — isolated `--save-only` instance, event clusters (focus toggles by window id, workspace 3↔4 round-trip, two 8 s ghostty open/close cycles, 50 s idle window, carrier window, SIGTERM) | **5 of 12 assertions FAILED.** Zero event-driven saves; see Findings F1 |
-| ~18:44 | Inspected `soak.log` | Stream-death flapping discovered (F1) |
-| ~18:45 | Checked deployed service's real data dir | **Production impact** (F2): session.json stale since Sep 14 17:21 |
-| ~18:45–18:46 | Raw protocol probes (python): bare-string vs object-form requests against live niri | Object form accepted; bare strings rejected (F3, oddity); `EventStream` object form replied `{"Ok":"Handled"}` + immediate `WorkspacesChanged` burst (F4) |
-| 18:47 | Byte-capture probe: manager against a python fake socket to log its exact request bytes | **Inconclusive — output never retrieved** (command auto-backgrounded; only the manager's stderr was seen). Probe fake also produced an artificial "Final save timed out" (it never answered Windows/Workspaces) |
-| 02:08–02:10 | Report preparation: checked leftovers | Stray wedged test manager (PID 826500, from the 18:47 probe) found still running after 7.5 h; ignored SIGTERM post-"Shutdown complete", killed with SIGKILL (F7) |
+| Time         | Action                                                                                                                                                                                                                                               | Result                                                                                                                                                                                                          |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ~18:35       | Environment discovery: `pgrep niri`, `/proc/5115/environ`                                                                                                                                                                                            | Daily driver confirmed: niri PID 4867, deployed manager 0.4.1 PID 5115, socket `/run/user/1000/niri.wayland-1.4867.sock` (shell had no `$NIRI_SOCKET`; recovered from the service's environ)                    |
+| ~18:36       | Live state survey                                                                                                                                                                                                                                    | 4 windows (ghostty ×2 ids 2,3; helium ×2 ids 4,5), all on workspace 4 "main"; 6 named workspaces. `systemctl`/journal blocked by CLI security policy — worked from `/proc` instead                              |
+| ~18:37–18:41 | Read `src/save.rs`, `src/restore.rs`, `src/config.rs`, `src/session.rs`, `src/main.rs`; confirmed scratch isolation via `XDG_DATA_HOME`/`XDG_CONFIG_HOME`, `--dry-run` writes nothing, marker-gated `--restore`, silent skip of byte-identical saves | Full test design possible without touching the deployed service's files                                                                                                                                         |
+| ~18:37       | Baseline: `cargo build --release` (v0.6.0, 4 m 05 s), `cargo fmt --all -- --check`                                                                                                                                                                   | Both green. **Clippy deferred — still not run**                                                                                                                                                                 |
+| ~18:42       | Spawn probe `niri msg action spawn -- ghostty -e sleep 8`                                                                                                                                                                                            | OK (self-closing window blip on the live desktop)                                                                                                                                                               |
+| 18:42–18:45  | **Soak Phase A** ran: `/tmp/nsm-soak/run-soak.sh` — isolated `--save-only` instance, event clusters (focus toggles by window id, workspace 3↔4 round-trip, two 8 s ghostty open/close cycles, 50 s idle window, carrier window, SIGTERM)             | **5 of 12 assertions FAILED.** Zero event-driven saves; see Findings F1                                                                                                                                         |
+| ~18:44       | Inspected `soak.log`                                                                                                                                                                                                                                 | Stream-death flapping discovered (F1)                                                                                                                                                                           |
+| ~18:45       | Checked deployed service's real data dir                                                                                                                                                                                                             | **Production impact** (F2): session.json stale since Sep 14 17:21                                                                                                                                               |
+| ~18:45–18:46 | Raw protocol probes (python): bare-string vs object-form requests against live niri                                                                                                                                                                  | Object form accepted; bare strings rejected (F3, oddity); `EventStream` object form replied `{"Ok":"Handled"}` + immediate `WorkspacesChanged` burst (F4)                                                       |
+| 18:47        | Byte-capture probe: manager against a python fake socket to log its exact request bytes                                                                                                                                                              | **Inconclusive — output never retrieved** (command auto-backgrounded; only the manager's stderr was seen). Probe fake also produced an artificial "Final save timed out" (it never answered Windows/Workspaces) |
+| 02:08–02:10  | Report preparation: checked leftovers                                                                                                                                                                                                                | Stray wedged test manager (PID 826500, from the 18:47 probe) found still running after 7.5 h; ignored SIGTERM post-"Shutdown complete", killed with SIGKILL (F7)                                                |
 
 Artifacts kept as evidence in `/tmp/nsm-soak/`: `soak.log` (flapping log), `timeline.log` (event markers), `result.txt` (assertion summary), `run-soak.sh`, `run-restore-proof.sh` (written, never runnable — no session file existed to restore).
 
@@ -58,7 +58,7 @@ Artifacts kept as evidence in `/tmp/nsm-soak/`: `soak.log` (flapping log), `time
 
 - Backoff constants verified against **real** niri: 1→2→4→8→16→30 s cap, healthy-stream reset logic untouched (stream never lives ≥5 s).
 - The 2 ms lifetime matches an **immediate deserialization failure on the first line(s) of the state-sync burst**, not a network/socket issue.
-- Every reconnect re-subscribes successfully → the loop never enters the polling fallback (`src/save.rs` fallback engages only when *subscribe fails*).
+- Every reconnect re-subscribes successfully → the loop never enters the polling fallback (`src/save.rs` fallback engages only when _subscribe fails_).
 
 ### F2 — The deployed 0.4.1 service is broken the same way, right now
 
@@ -70,7 +70,7 @@ Artifacts kept as evidence in `/tmp/nsm-soak/`: `soak.log` (flapping log), `time
 
 ### F3 — Request-framing oddity (open, low-priority vs F1)
 
-**RESOLVED 2026-09-16:** no oddity — byte-capture shows the manager sends valid quoted bare-string JSON (`b'"EventStream"'`), accepted by live niri; the 2026-09-15 probe had sent *unquoted* `EventStream`, which is not JSON at all.
+**RESOLVED 2026-09-16:** no oddity — byte-capture shows the manager sends valid quoted bare-string JSON (`b'"EventStream"'`), accepted by live niri; the 2026-09-15 probe had sent _unquoted_ `EventStream`, which is not JSON at all.
 
 Raw probes against live niri: `{"Version":null}` and `{"EventStream":null}` are accepted; bare `Version` / `EventStream` lines get `{"Err":"error parsing request"}`. Standard serde externally-tagged enums emit bare strings for unit variants — yet the deployed 0.4.1 restore (which sends unit-variant requests like `Windows` from an older niri-ipc) demonstrably worked at boot 09:37, and the v0.6.0 subscribe was accepted. The exact bytes the manager sends were **not captured** (see d). Do not draw conclusions until the byte capture is re-run.
 
@@ -78,7 +78,7 @@ Raw probes against live niri: `{"Version":null}` and `{"EventStream":null}` are 
 
 **RESOLVED 2026-09-16:** the fake server now emulates the burst (`emit_state_sync_burst`) including the real `CastsChanged` line and an unknown-variant poison line; a sanitized live capture is checked in as `src/testdata/niri-event-stream-2026-08-02.jsonl`.
 
-niri-ipc 25.11 docs: *"The event stream will always give you the full current state up-front. For example, the first workspace-related event you will receive will be `WorkspacesChanged` containing the full current workspaces state."* Verified live: the burst starts arriving in the same read as the `{"Ok":"Handled"}` reply. `src/fake_niri.rs` does not emulate this burst → the repo's integration tests never exercise "deserialize the real initial burst", which is precisely where production dies.
+niri-ipc 25.11 docs: _"The event stream will always give you the full current state up-front. For example, the first workspace-related event you will receive will be `WorkspacesChanged` containing the full current workspaces state."_ Verified live: the burst starts arriving in the same read as the `{"Ok":"Handled"}` reply. `src/fake_niri.rs` does not emulate this burst → the repo's integration tests never exercise "deserialize the real initial burst", which is precisely where production dies.
 
 ### F5 — Resilience gap: successful-subscribe-then-instant-death = forever-zero-saves
 
@@ -87,7 +87,7 @@ niri-ipc 25.11 docs: *"The event stream will always give you the full current st
 Two compounding design gaps, independent of the F1 root cause (any future parse error re-triggers them):
 
 1. The fallback interval only engages when **subscribe fails** — a stream that dies instantly after a successful subscribe loops on reconnect forever without ever saving.
-2. When the reader dies mid-debounce, the pending debounced save is dropped (`rx.recv() → None → break 'outer` skips the save) even though layout-relevant events *were* delivered. A "save once on stream death if events were seen" rule would have kept saving every ~30 s even with F1 unfixed.
+2. When the reader dies mid-debounce, the pending debounced save is dropped (`rx.recv() → None → break 'outer` skips the save) even though layout-relevant events _were_ delivered. A "save once on stream death if events were seen" rule would have kept saving every ~30 s even with F1 unfixed.
 
 ### F6 — Silence: the parse error is swallowed
 
@@ -127,7 +127,7 @@ The 18:47 probe manager (against my pathological fake socket) logged "Received S
 ### b) PARTIALLY DONE
 
 1. ~~**Root cause**: bracketed to "first lines of the state-sync burst fail `Event` deserialization in niri-ipc 25.11" with the exact offending line/variant **not yet identified** (needs burst capture + fixture test). F3 framing oddity unresolved.~~ done (2026-09-16 — byte-captured: burst line 7 `CastsChanged`, unknown to 25.11; F3 dissolved: the old probe sent unquoted, invalid JSON)
-2. ~~**Soak evidence**: reactive-save timing assertions (debounce collapse, idle = zero saves, open/close saves) designed but unproven — no saves ever fired. Backoff timing *was* proven, accidentally, by the failure itself.~~ done (2026-09-16 — all Phase A/B/C assertions green via `scripts/soak-test.sh`)
+2. ~~**Soak evidence**: reactive-save timing assertions (debounce collapse, idle = zero saves, open/close saves) designed but unproven — no saves ever fired. Backoff timing _was_ proven, accidentally, by the failure itself.~~ done (2026-09-16 — all Phase A/B/C assertions green via `scripts/soak-test.sh`)
 3. ~~This status report (done now); TODO_LIST/CHANGELOG/AGENTS.md updates **deliberately not done yet** — waiting for instructions per session rules.~~ done (2026-09-16 — all three updated; v0.6.1 CHANGELOG section cut)
 
 ### c) NOT STARTED
@@ -208,7 +208,7 @@ The 18:47 probe manager (against my pathological fake socket) logged "Received S
 
 ### g) QUESTIONS (cannot be answered from inside the session)
 
-1. ~~**niri channel policy for this fork:** the daily driver runs rolling niri *unstable*. Should the fix be (a) pin the newest released niri-ipc and accept breakage whenever unstable adds the next event variant, (b) implement unknown-variant-tolerant event parsing (skip + log) so the manager survives rolling unstable, or (c) both (bump + tolerance)? This is a product decision about which niri population this fork promises to serve.~~ **Answered 2026-09-16: (c) both** — `niri-ipc = "=26.4.0"` exact pin + tolerant parsing (an unstable-running daily driver needs both).
+1. ~~**niri channel policy for this fork:** the daily driver runs rolling niri _unstable_. Should the fix be (a) pin the newest released niri-ipc and accept breakage whenever unstable adds the next event variant, (b) implement unknown-variant-tolerant event parsing (skip + log) so the manager survives rolling unstable, or (c) both (bump + tolerance)? This is a product decision about which niri population this fork promises to serve.~~ **Answered 2026-09-16: (c) both** — `niri-ipc = "=26.4.0"` exact pin + tolerant parsing (an unstable-running daily driver needs both).
 2. ~~**Hotfix priority:** the deployed 0.4.1 on this machine is silently not saving right now (F2). Do you want an emergency v0.6.1 (fix + tag) ahead of completing the soak evidence, and will you re-pin SystemNix immediately after? (Repo side is mine; the pin and the service restart are yours — `systemctl` is blocked from this CLI.)~~ **Answered 2026-09-16: v0.6.1 release-prepped in-repo (version bumped, CHANGELOG section ready); tag, push, SystemNix re-pin + service restart remain user-side.**
 3. ~~**Disruption budget for the remaining real-hardware proof:** Phase C spawns real windows on your desktop (one self-closing ghostty now; potentially a few more on re-runs). Earlier phases already blinked several 8 s ghostty windows tonight without asking first. Is live-desktop spawning pre-approved for future sessions of this soak, or do you want a per-session go/no-go?~~ **Answered 2026-09-16 (by the user's "execute and verify until done" directive): proceeded with minimal-disruption self-closing carriers; the procedure + disruption notice is now documented in `scripts/soak-test.sh` — announcing before future runs remains the polite default.**
 

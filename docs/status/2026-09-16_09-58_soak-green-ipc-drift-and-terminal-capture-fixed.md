@@ -14,15 +14,15 @@ Fix policy (the report's question 1): **both** — pin `niri-ipc = "=26.4.0"` (e
 
 ## Fixes shipped (all in `CHANGELOG.md` [0.6.1])
 
-| # | Bug | Fix |
-| --- | --- | --- |
-| F1 | One unknown event variant killed the stream; zero event-driven saves in production for 33 h | Tolerant reader (`event_reader`, `src/save.rs`) + niri-ipc `=26.4.0` |
-| F5a | Stream dying mid-debounce dropped the pending save | Flush the debounced save before reconnecting |
-| F5b | Subscribe-ok-then-instant-death looped forever without saving | Periodic saves mixed between reconnects after 3 consecutive sub-5s streams (`RAPID_DEATH_FALLBACK_THRESHOLD`) |
-| F6 | The parse error was swallowed | Bounded WARN per unparsable line (3 logged, 200 chars, rest summarized) |
-| F7 | A niri that accepts but never replies hung the daemon past SIGTERM | 5 s read/write timeout on all request/reply IPC + explicit `process::exit` after the service loop |
-| F9 (new) | `/proc/.../children` reports zero children for NixOS `.ghostty-wrapper` fork shapes — terminal state was `null` on EVERY real capture | Stat-ppid scan fallback (`get_children_at`, `src/proc.rs`); ghostty now captures `child_command`/`child_cwd` live |
-| F10 (new) | kitty spawns leaf helper kittens (`__atexit__`, `__watch_conf__`) that sorted first; the walker descended into a helper dead-end | Prefer non-shell/non-helper children over helpers when tpgid does not disambiguate |
+| #         | Bug                                                                                                                                   | Fix                                                                                                               |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| F1        | One unknown event variant killed the stream; zero event-driven saves in production for 33 h                                           | Tolerant reader (`event_reader`, `src/save.rs`) + niri-ipc `=26.4.0`                                              |
+| F5a       | Stream dying mid-debounce dropped the pending save                                                                                    | Flush the debounced save before reconnecting                                                                      |
+| F5b       | Subscribe-ok-then-instant-death looped forever without saving                                                                         | Periodic saves mixed between reconnects after 3 consecutive sub-5s streams (`RAPID_DEATH_FALLBACK_THRESHOLD`)     |
+| F6        | The parse error was swallowed                                                                                                         | Bounded WARN per unparsable line (3 logged, 200 chars, rest summarized)                                           |
+| F7        | A niri that accepts but never replies hung the daemon past SIGTERM                                                                    | 5 s read/write timeout on all request/reply IPC + explicit `process::exit` after the service loop                 |
+| F9 (new)  | `/proc/.../children` reports zero children for NixOS `.ghostty-wrapper` fork shapes — terminal state was `null` on EVERY real capture | Stat-ppid scan fallback (`get_children_at`, `src/proc.rs`); ghostty now captures `child_command`/`child_cwd` live |
+| F10 (new) | kitty spawns leaf helper kittens (`__atexit__`, `__watch_conf__`) that sorted first; the walker descended into a helper dead-end      | Prefer non-shell/non-helper children over helpers when tpgid does not disambiguate                                |
 
 F9 and F10 explain why the deployed 0.4.1's session files never contained terminal state: capture has been silently broken on real hardware all along (the fake proc trees in tests are too clean).
 
