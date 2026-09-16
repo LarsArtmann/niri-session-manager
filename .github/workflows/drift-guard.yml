@@ -5,11 +5,12 @@ name: niri-ipc drift guard
 # (live-capture fixture, tolerant reader fuzz, wire-format pins, protocol
 # probe). Green means the exact pin is current or the tolerant reader plus
 # pin still hold; red means niri's protocol moved and the pin should be
-# bumped. continue-on-error keeps it a signal, not a release blocker.
+# bumped. continue-on-error on the test step keeps drift findings a signal,
+# not a release blocker; infrastructure failures fail red.
 
 on:
   schedule:
-    - cron: "0 4 * * 1" # Mondays 04:05 UTC
+    - cron: "0 4 * * 1" # Mondays 04:00 UTC
   workflow_dispatch:
 
 env:
@@ -18,7 +19,6 @@ env:
 jobs:
   drift-guard:
     runs-on: ubuntu-latest
-    continue-on-error: true
     permissions:
       contents: read
     steps:
@@ -29,15 +29,21 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: Resolve newest niri-ipc
         run: |
-          latest=$(cargo search niri-ipc --limit 1 | sed -n 's/^niri-ipc = "\([0-9][0-9.]*\)".*/\1/p')
+          strip_ansi() { sed -e 's/\x1b\[[0-9;]*m//g'; }
+          latest=$(cargo search niri-ipc --limit 1 | strip_ansi | sed -n 's/^niri-ipc = "\([0-9][0-9.]*\)".*/\1/p')
           if [ -z "$latest" ]; then
-            echo "::error::could not resolve the newest niri-ipc version (cargo search failed)"
+            echo "cargo search yielded nothing; falling back to the sparse registry index"
+            latest=$(curl -fsSL https://index.crates.io/ni/ri/niri-ipc | jq -r 'select(.yanked | not) | .vers' | tail -n 1)
+          fi
+          if [ -z "$latest" ]; then
+            echo "::error::could not resolve the newest niri-ipc version (cargo search and index fallback both failed)"
             exit 1
           fi
           echo "newest niri-ipc: $latest"
           sed -i "s/niri-ipc = \"=[0-9.]*\"/niri-ipc = \"=$latest\"/" Cargo.toml
           grep 'niri-ipc' Cargo.toml
       - name: Run drift-sensitive tests on the newest niri-ipc
+        continue-on-error: true
         run: |
           cargo test -- \
             live_niri_event_stream \
