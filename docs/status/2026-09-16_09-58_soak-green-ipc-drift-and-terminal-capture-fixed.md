@@ -12,7 +12,7 @@ Live capture of the up-front state-sync burst from niri unstable 2026-08-02 (47 
 
 Fix policy (the report's question 1): **both** — pin `niri-ipc = "=26.4.0"` (exact pin per the crate's recommendation) AND tolerant event parsing, because the daily driver runs rolling unstable niri that will drift past 26.4 eventually. Tolerance treats an undecodable line as WARN-logged (bounded), conservatively layout-relevant, and SKIPPED — the stream must survive protocol drift.
 
-## Fixes shipped (all in `CHANGELOG.md` [Unreleased])
+## Fixes shipped (all in `CHANGELOG.md` [0.6.1])
 
 | # | Bug | Fix |
 | --- | --- | --- |
@@ -39,6 +39,8 @@ F9 and F10 explain why the deployed 0.4.1's session files never contained termin
 - Environment note: the shared `/mnt/buildcache` cargo registry hit 100 % this session; work proceeded with a private `CARGO_HOME=/home/lars/.cache/nsm-cargo-home`. The mount still needs attention (17 G emergency swapfile, 114 G rust toolchains live there).
 
 ## Open items (moved to `TODO_LIST.md`)
+
+- **Deploy alert (observed 12:40, post-soak)**: the service was re-pinned and restarted at 2026-09-16 08:25 — to **v0.6.0**, which predates this fix batch (the deployed `session.json` has been stale since 08:25: F1 recurrence in production). Tagging v0.6.1 and re-pinning SystemNix to it is the actual fix for production; the acceptance check is a fresh `session.json` mtime within minutes of the restart.
 
 - Unattended durability soak (30–60 min or overnight via the deployed service) after the v0.6.1 deploy — the user's real acceptance check is a fresh `session.json` mtime within minutes of the upgrade.
 - ROADMAP Q3 narrows: ghostty + kitty now have real-binary coverage; foot/wezterm/alacritty remain doc-verified.
