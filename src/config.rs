@@ -115,6 +115,9 @@ apps = [
 
 # Simple command remapping
 "com.mitchellh.ghostty" = ["ghostty"]
+# niri reports alacritty's app_id capitalized; map both spellings to the binary
+"Alacritty" = ["alacritty"]
+"alacritty" = ["alacritty"]
 "org.wezfurlong.wezterm" = ["wezterm"]
 
 # Commands with arguments

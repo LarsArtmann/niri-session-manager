@@ -24,7 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
-- **alacritty windows never captured terminal state, and restore spawned a nonexistent binary**: niri reports alacritty's app_id capitalized (`Alacritty`), but the default `terminal_app_ids` only listed lowercase — the capture walk never descended alacritty process trees, and restore fell back to spawning the literal app_id (`Alacritty`, no such executable), which timed out after 5s and restored nothing. Both spellings now ship in `default_terminal_app_ids` and the config template (found live 2026-09-16 via the `CARRIER=alacritty` soak; existing config.toml files must add `"Alacritty"` by hand). The soak script also now waits for the carrier window to appear before capturing — a cold alacritty first launch previously outran the fixed 3s pre-capture sleep.
+- **alacritty windows never captured terminal state, and restore spawned a nonexistent binary**: niri reports alacritty's app_id capitalized (`Alacritty`), but the default `terminal_app_ids` only listed lowercase — the capture walk never descended alacritty process trees, and restore used the app_id verbatim as the launch command (`Alacritty`, no such executable), which timed out after 5s and restored nothing. Both spellings now ship in `default_terminal_app_ids`, and the default config template maps `"Alacritty" = ["alacritty"]` (found live 2026-09-16 via the `CARRIER=alacritty` soak; existing config.toml files must add the entry by hand). The soak script also now waits for the carrier window to appear before capturing — a cold alacritty first launch previously outran the fixed 3s pre-capture sleep.
 
 ## [0.6.1] - 2026-09-16
 

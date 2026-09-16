@@ -621,6 +621,14 @@ fn config_default_values() {
     assert!(c.shell_names.contains(&"fish".to_string()));
     assert!(c.helper_names.contains(&"kitten".to_string()));
     assert_eq!(c.max_walk_depth, 20);
+    // The launch prefix for an unmapped app is the app_id verbatim, so the
+    // capitalized "Alacritty" app_id needs a mapping to the real binary in
+    // the default template (else restore spawns a nonexistent executable —
+    // the second half of the 2026-09-16 alacritty carrier bug).
+    assert!(
+        DEFAULT_APP_CONFIG_TOML.contains("\"Alacritty\" = [\"alacritty\"]"),
+        "default template must map the Alacritty app_id to the alacritty binary"
+    );
 }
 
 #[test]
