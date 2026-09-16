@@ -66,6 +66,7 @@ check_le() {
 mark() { printf '%s %s\n' "$(date +%s.%N)" "$1" >> "$TIMELINE"; }
 focus() { $NMSG msg action focus-window --id "$1"; }
 nwindows() { $NMSG msg -j windows 2>/dev/null | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))'; }
+nwindows_of_app() { $NMSG msg -j windows 2>/dev/null | python3 -c "import json,sys; print(sum(1 for w in json.load(sys.stdin) if w['app_id'] == '$1'))"; }
 saves_so_far() { grep -c "Session saved to" "$LOG" 2>/dev/null || true; }
 
 phase_a() {
@@ -221,15 +222,17 @@ phase_c() {
   local WAIT_RC=0; wait "$MGR" || WAIT_RC=$?
   check "phase C capture manager exited cleanly" "$WAIT_RC" "0"
 
-  # The carrier self-closes after `sleep 45`; wait for it to die so the
-  # session holds one dead window whose restore deficit is exactly 1.
-  local SAVED_COUNT
-  SAVED_COUNT=$(python3 -c 'import json;print(len(json.load(open("'"$SESSION"'"))["windows"]))' 2>/dev/null || echo 0)
+  # The carrier self-closes after `sleep 45`; wait until NO kitty window is
+  # live before restoring, so the session's kitty entry is a genuine deficit.
+  # The wait must be app-specific, not a window-count drop: OTHER windows can
+  # die first (a Phase-A leftover carrier) and would otherwise end the wait
+  # while the phase-C carrier is still alive, making the deficit 0. (This and
+  # the cleanup above were each a real flake on the live desktop.)
   local DEADLINE=$((SECONDS + 75))
-  while [ "$(nwindows)" -ge "$SAVED_COUNT" ] && [ "$SECONDS" -lt "$DEADLINE" ]; do
+  while [ "$(nwindows_of_app kitty)" -gt 0 ] && [ "$SECONDS" -lt "$DEADLINE" ]; do
     sleep 2
   done
-  check "carrier window died before restore proof" "$([ "$(nwindows)" -lt "$SAVED_COUNT" ] && echo yes || echo no)" "yes"
+  check "carrier window died before restore proof" "$(nwindows_of_app kitty)" "0"
 
   local OUT
   OUT=$("$BIN" --dry-run 2>&1); RC=$?
