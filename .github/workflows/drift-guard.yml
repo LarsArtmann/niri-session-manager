@@ -1,0 +1,47 @@
+name: niri-ipc drift guard
+
+# Canary against niri protocol drift: checks out the newest published
+# niri-ipc, repins Cargo.toml to it, and runs the drift-sensitive tests
+# (live-capture fixture, tolerant reader fuzz, wire-format pins, protocol
+# probe). Green means the exact pin is current or the tolerant reader plus
+# pin still hold; red means niri's protocol moved and the pin should be
+# bumped. continue-on-error keeps it a signal, not a release blocker.
+
+on:
+  schedule:
+    - cron: "0 4 * * 1" # Mondays 04:05 UTC
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  drift-guard:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Update to rust nightly
+        run: rustup update nightly && rustup default nightly
+      - name: Cache cargo builds
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Resolve newest niri-ipc
+        run: |
+          latest=$(cargo search niri-ipc --limit 1 | sed -n 's/^niri-ipc = "\([0-9][0-9.]*\)".*/\1/p')
+          if [ -z "$latest" ]; then
+            echo "::error::could not resolve the newest niri-ipc version (cargo search failed)"
+            exit 1
+          fi
+          echo "newest niri-ipc: $latest"
+          sed -i "s/niri-ipc = \"=[0-9.]*\"/niri-ipc = \"=$latest\"/" Cargo.toml
+          grep 'niri-ipc' Cargo.toml
+      - name: Run drift-sensitive tests on the newest niri-ipc
+        run: |
+          cargo test -- \
+            live_niri_event_stream \
+            unknown_event_lines \
+            wire_format \
+            request_reply \
+            protocol_probe

@@ -48,12 +48,16 @@ fn get_children_at(base: &Path, pid: u32) -> Vec<u32> {
             return children;
         }
     }
-    // The children file can be empty for some fork shapes even though the
-    // child exists and reports this pid as its ppid (observed live
-    // 2026-09-16: nix's .ghostty-wrapper reported zero children while the
-    // wrapped terminal's child was right there — terminal state silently
-    // never captured). Scanning /proc stat ppids is the ground truth `ps`
-    // itself uses.
+    // The kernel's children file can disagree with stat-ppid linkage under
+    // NixOS wrapper fork shapes (observed live 2026-09-16: nix's
+    // .ghostty-wrapper reported zero children and tpgid -1 while the wrapped
+    // terminal's child existed and listed the wrapper as its ppid — which is
+    // why terminal state was silently null on every real capture until the
+    // fallback below). The exact kernel mechanism (children-seq bookkeeping
+    // around the wrapper's fork/exec chain) is not fully diagnosed; the
+    // evidence capture lives in docs/status/ 2026-09-16 reports. Stat ppid is
+    // the ground truth `ps` itself uses, so the scan is authoritative, not a
+    // heuristic — it only runs when the children file yields nothing.
     scan_children_by_ppid(base, pid)
 }
 

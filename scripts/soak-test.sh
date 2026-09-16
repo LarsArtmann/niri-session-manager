@@ -7,13 +7,17 @@
 #
 # DISRUPTION NOTICE: this script changes YOUR desktop while it runs —
 # focus toggles, workspace round-trips, several self-closing
-# `ghostty -e sleep N` windows, and one self-closing kitty carrier window
+# `ghostty -e sleep N` windows, and one self-closing carrier terminal window
 # (~4 minutes total). Original focus and workspace are restored; every
 # spawned window closes itself.
 #
 # Usage:
 #   scripts/soak-test.sh [phase] [path-to-binary]
 #   phase: all (default) | a (reactive saves) | b (session vs live) | c (restore proof)
+#   CARRIER env: phase-C carrier terminal (default kitty; also tested:
+#   foot, alacritty; wezterm supported but must be installed). The carrier
+#   must be a terminal the user does NOT run daily — phase C assumes the
+#   carrier's per-app window deficit belongs exclusively to it.
 #
 # The binary defaults to target/release/niri-session-manager. All manager
 # state is isolated under a scratch XDG dir — the deployed service's files
@@ -26,6 +30,33 @@ PHASE="${1:-all}"
 BIN="${2:-$(dirname "$0")/../target/release/niri-session-manager}"
 NMSG="${NMSG:-niri}"
 SCRATCH="${SOAK_SCRATCH:-/tmp/nsm-soak}"
+
+# Phase-C carrier terminal. CARRIER_CMD is the launch argv prefix; CARRIER_APP
+# is the niri app_id spawn confirmation matches (NOT always the binary name:
+# wezterm reports org.wezfurlong.wezterm, alacritty reports Alacritty).
+CARRIER="${CARRIER:-kitty}"
+case "$CARRIER" in
+	kitty)
+		CARRIER_APP=kitty
+		CARRIER_CMD=(kitty sleep 45)
+		;;
+	foot)
+		CARRIER_APP=foot
+		CARRIER_CMD=(foot sleep 45)
+		;;
+	wezterm)
+		CARRIER_APP=org.wezfurlong.wezterm
+		CARRIER_CMD=(wezterm start -- sleep 45)
+		;;
+	alacritty)
+		CARRIER_APP=Alacritty
+		CARRIER_CMD=(alacritty -e sleep 45)
+		;;
+	*)
+		echo "ERROR: unknown CARRIER '$CARRIER' (supported: kitty, foot, wezterm, alacritty)" >&2
+		exit 1
+		;;
+esac
 
 mkdir -p "$SCRATCH"
 export XDG_DATA_HOME="$SCRATCH/data"
@@ -234,26 +265,32 @@ phase_c() {
 	local RC=0
 	: >"$SCRATCH/restore.log"
 
-	# Close kitty windows left over from a previous phase-C run: the restored
+	# Close carrier windows left over from a previous phase-C run: the restored
 	# carrier intentionally keeps running after its command exits (the restore
 	# composition ends with `; exec $SHELL`, so the terminal stays usable), so
 	# it lingers as an idle shell and would fill the next run's per-app
-	# deficit. This assumes the user has no kitty windows of their own — kitty
-	# is chosen as the carrier precisely because this daily driver runs ghostty.
-	$NMSG msg -j windows 2>/dev/null | python3 -c 'import json,sys; [print(w["id"]) for w in json.load(sys.stdin) if w["app_id"] == "kitty"]' | while read -r kid; do
+	# deficit. This assumes the user has no $CARRIER windows of their own —
+	# kitty is the default carrier precisely because this daily driver runs
+	# ghostty.
+	if ! command -v "${CARRIER_CMD[0]}" >/dev/null 2>&1; then
+		echo "SKIP: carrier terminal '${CARRIER_CMD[0]}' is not installed"
+		return 0
+	fi
+	$NMSG msg -j windows 2>/dev/null | python3 -c "import json,sys; [print(w[\"id\"]) for w in json.load(sys.stdin) if w[\"app_id\"] == \"$CARRIER_APP\"]" | while read -r kid; do
 		$NMSG msg action close-window --id "$kid" 2>/dev/null || true
 	done
 
 	# Self-sufficient proof: take a FRESH capture containing a freshly spawned
 	# carrier, so the restore deficit reflects the desktop as it is right now
 	# (a live desktop drifts — reusing an older session invites races with the
-	# user's own windows). The carrier is a KITTY window: the user's daily
-	# terminals are ghostty, so the kitty per-app deficit belongs exclusively
-	# to the carrier, and the kitty restore profile gets real-binary coverage
-	# for free. (A custom `--app-id` carrier does NOT work: spawn confirmation
-	# matches app_id, and profile-launched terminals can't reproduce it.)
+	# user's own windows). The carrier is a $CARRIER window (default kitty: the
+	# user's daily terminals are ghostty, so the carrier's per-app deficit
+	# belongs exclusively to it, and the carrier's restore profile gets
+	# real-binary coverage for free). (A custom `--app-id` carrier does NOT
+	# work: spawn confirmation matches app_id, and profile-launched terminals
+	# can't reproduce it.)
 	rm -f "$SESSION" "$MARKER" "$MARKER.removed"
-	$NMSG msg action spawn -- kitty sleep 45
+	$NMSG msg action spawn -- "${CARRIER_CMD[@]}"
 	sleep 3
 	"$BIN" --save-only --save-interval 15 >>"$SCRATCH/restore-save.log" 2>&1 &
 	local MGR=$!
@@ -263,17 +300,18 @@ phase_c() {
 	wait "$MGR" || WAIT_RC=$?
 	check "phase C capture manager exited cleanly" "$WAIT_RC" "0"
 
-	# The carrier self-closes after `sleep 45`; wait until NO kitty window is
-	# live before restoring, so the session's kitty entry is a genuine deficit.
-	# The wait must be app-specific, not a window-count drop: OTHER windows can
-	# die first (a Phase-A leftover carrier) and would otherwise end the wait
-	# while the phase-C carrier is still alive, making the deficit 0. (This and
-	# the cleanup above were each a real flake on the live desktop.)
+	# The carrier self-closes after `sleep 45`; wait until NO carrier window
+	# is live before restoring, so the session's carrier entry is a genuine
+	# deficit. The wait must be app-specific, not a window-count drop: OTHER
+	# windows can die first (a Phase-A leftover carrier) and would otherwise
+	# end the wait while the phase-C carrier is still alive, making the
+	# deficit 0. (This and the cleanup above were each a real flake on the
+	# live desktop.)
 	local DEADLINE=$((SECONDS + 75))
-	while [ "$(nwindows_of_app kitty)" -gt 0 ] && [ "$SECONDS" -lt "$DEADLINE" ]; do
+	while [ "$(nwindows_of_app "$CARRIER_APP")" -gt 0 ] && [ "$SECONDS" -lt "$DEADLINE" ]; do
 		sleep 2
 	done
-	check "carrier window died before restore proof" "$(nwindows_of_app kitty)" "0"
+	check "carrier window died before restore proof" "$(nwindows_of_app "$CARRIER_APP")" "0"
 
 	local OUT
 	OUT=$("$BIN" --dry-run 2>&1)

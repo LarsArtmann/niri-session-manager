@@ -35,7 +35,7 @@ jobs:
           output=$(cargo test 2>&1)
           echo "$output" | grep -E "^test result:" || true
           passed=$(echo "$output" | grep -oE '[0-9]+ passed; 0 failed' | head -1 | grep -oE '^[0-9]+')
-          expected=131
+          expected=139
           if [ -z "$passed" ] || [ "$passed" -lt "$expected" ]; then
             echo "::error::Test count dropped: got '${passed:-none}', expected at least $expected"
             exit 1
