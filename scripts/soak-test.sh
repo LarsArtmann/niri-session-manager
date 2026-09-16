@@ -291,7 +291,14 @@ phase_c() {
 	# can't reproduce it.)
 	rm -f "$SESSION" "$MARKER" "$MARKER.removed"
 	$NMSG msg action spawn -- "${CARRIER_CMD[@]}"
-	sleep 3
+	# Wait for the carrier window to actually appear before capturing: a cold
+	# first launch can exceed any fixed sleep (alacritty's did — the carrier
+	# missed the capture window and the whole proof ran without it).
+	local APPEAR_DEADLINE=$((SECONDS + 30))
+	while [ "$(nwindows_of_app "$CARRIER_APP")" -eq 0 ] && [ "$SECONDS" -lt "$APPEAR_DEADLINE" ]; do
+		sleep 1
+	done
+	check_ge "carrier window appeared" "$(nwindows_of_app "$CARRIER_APP")" 1
 	"$BIN" --save-only --save-interval 15 >>"$SCRATCH/restore-save.log" 2>&1 &
 	local MGR=$!
 	sleep 4
