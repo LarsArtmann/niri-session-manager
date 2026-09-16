@@ -1,9 +1,16 @@
 //! Reactive saving: event-driven with debounce, polling fallback with
 //! capped reconnect backoff, and graceful shutdown with a final save.
+//!
+//! The niri event stream is parsed tolerantly: a line that the pinned
+//! niri-ipc version cannot deserialize (niri unstable adds event variants
+//! between releases — observed live 2026-09-15, when `CastsChanged` in the
+//! up-front state-sync burst killed the stream ~2 ms after subscribe) is
+//! logged, conservatively treated as layout-relevant, and SKIPPED — the
+//! stream itself must survive protocol drift.
 
 use anyhow::{Context, Result};
 use niri_ipc::{Reply, Request, Response};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader};
 use std::net::Shutdown;
 use std::os::unix::net::UnixStream;
 use std::path::Path;
@@ -15,6 +22,7 @@ use tokio::time::sleep;
 use tracing::{error, info, warn};
 
 use crate::config::{AppConfig, Config};
+use crate::ipc::{open_niri_socket, request_reply};
 use crate::session::save_session_with_backup;
 
 pub const SAVE_DEBOUNCE_SECS: u64 = 2;
@@ -22,12 +30,26 @@ pub const SAVE_DEBOUNCE_SECS: u64 = 2;
 pub const RECONNECT_DELAY_INITIAL: Duration = Duration::from_secs(1);
 /// Upper bound for the exponential reconnect backoff.
 pub const RECONNECT_DELAY_MAX: Duration = Duration::from_secs(30);
+/// How many consecutive event-stream subscriptions that died without living
+/// [`RECONNECT_HEALTHY_STREAM`] trigger periodic saves between reconnect
+/// attempts. Guards against a stream that always subscribes successfully but
+/// never delivers events: without this, the polling fallback (which only
+/// engages when the *subscribe* fails) would never run and no save would
+/// ever happen (observed live 2026-09-15).
+pub const RAPID_DEATH_FALLBACK_THRESHOLD: u32 = 3;
 /// How long shutdown waits for the reactive save task to stop gracefully
 /// before falling back to an abort.
 pub const SAVE_TASK_SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
 /// A stream that survived this long counts as healthy and resets the
 /// reconnect backoff; quicker deaths count as niri flapping.
 pub const RECONNECT_HEALTHY_STREAM: Duration = Duration::from_secs(5);
+/// Per event-stream connection: how many unparsable lines get their own WARN
+/// log line before further logging is suppressed to a summary (a protocol
+/// mismatch can make every line of a burst unparsable, and reconnect flapping
+/// would otherwise repeat the whole dump).
+pub const MAX_UNPARSED_LOG_PER_CONNECTION: usize = 3;
+/// Length limit (chars) for logging raw unparsable event lines.
+pub const UNPARSED_LOG_CHAR_LIMIT: usize = 200;
 
 /// Doubles the reconnect delay, capped so a flapping niri cannot pin the save
 /// loop into a hot reconnect cycle.
@@ -60,6 +82,20 @@ pub const fn layout_relevant(event: &niri_ipc::Event) -> bool {
     )
 }
 
+/// One line off the niri event stream: either an event the pinned niri-ipc
+/// version understands, or the raw line it refused to deserialize.
+#[derive(Debug, Clone)]
+pub enum ReadEvent {
+    Event(niri_ipc::Event),
+    Unparsed(String),
+}
+
+/// Bounded for logging: an unparsable line can be a huge `WindowsChanged`
+/// dump, and the WARN log only needs enough to identify the variant.
+fn truncate_for_log(line: &str) -> String {
+    line.chars().take(UNPARSED_LOG_CHAR_LIMIT).collect()
+}
+
 /// Long-lived save loop: subscribes to niri's event stream and saves shortly
 /// after layout activity settles (debounced), instead of blind polling.
 /// When the stream is unavailable or dies, falls back to saving at the
@@ -85,6 +121,7 @@ pub async fn run_reactive_save_session(
 ) {
     let debounce = Duration::from_secs(SAVE_DEBOUNCE_SECS);
     let mut reconnect_delay = RECONNECT_DELAY_INITIAL;
+    let mut rapid_deaths: u32 = 0;
     info!(
         "Starting reactive save task (niri event stream, debounce {}s, fallback interval {} min)",
         SAVE_DEBOUNCE_SECS,
@@ -95,28 +132,44 @@ pub async fn run_reactive_save_session(
         if *shutdown.borrow_and_update() {
             break;
         }
-        let connection = match subscribe_event_stream().await {
-            Ok(connection) => connection,
-            Err(e) => {
-                warn!(
-                    "Niri event stream unavailable ({e}); falling back to periodic saves ({} min)",
-                    config.save_interval.max(1)
-                );
-                loop {
-                    tokio::select! {
-                        () = sleep(fallback_interval) => {}
-                        () = shutdown_requested(&mut shutdown) => break 'outer,
-                    }
-                    if *shutdown.borrow_and_update() {
-                        break 'outer;
-                    }
-                    if let Err(save_err) =
-                        save_session_with_backup(&file_path, &config, &app_config).await
+        let connection = if rapid_deaths >= RAPID_DEATH_FALLBACK_THRESHOLD {
+            warn!(
+                "Niri event stream died {rapid_deaths} times without staying up {}s; \
+                 mixing periodic saves ({fallback_min} min) between reconnects",
+                RECONNECT_HEALTHY_STREAM.as_secs(),
+                fallback_min = config.save_interval.max(1)
+            );
+            match periodic_fallback_until_stream(
+                &file_path,
+                &config,
+                &app_config,
+                fallback_interval,
+                &mut shutdown,
+            )
+            .await
+            {
+                Some(connection) => connection,
+                None => break 'outer,
+            }
+        } else {
+            match subscribe_event_stream().await {
+                Ok(connection) => connection,
+                Err(e) => {
+                    warn!(
+                        "Niri event stream unavailable ({e}); falling back to periodic saves ({} min)",
+                        config.save_interval.max(1)
+                    );
+                    match periodic_fallback_until_stream(
+                        &file_path,
+                        &config,
+                        &app_config,
+                        fallback_interval,
+                        &mut shutdown,
+                    )
+                    .await
                     {
-                        error!("Error saving session: {}", save_err);
-                    }
-                    if let Ok(connection) = subscribe_event_stream().await {
-                        break connection;
+                        Some(connection) => connection,
+                        None => break 'outer,
                     }
                 }
             }
@@ -136,69 +189,88 @@ pub async fn run_reactive_save_session(
             break;
         }
         info!("Niri event stream ended; reconnecting");
-        reconnect_delay = if stream_started.elapsed() >= RECONNECT_HEALTHY_STREAM {
-            RECONNECT_DELAY_INITIAL
+        if stream_started.elapsed() >= RECONNECT_HEALTHY_STREAM {
+            reconnect_delay = RECONNECT_DELAY_INITIAL;
+            rapid_deaths = 0;
         } else {
-            next_reconnect_delay(reconnect_delay)
-        };
-        tokio::select! {
-            () = sleep(reconnect_delay) => {}
-            () = shutdown_requested(&mut shutdown) => break,
+            rapid_deaths = rapid_deaths.saturating_add(1);
+            reconnect_delay = next_reconnect_delay(reconnect_delay);
+        }
+        if rapid_deaths < RAPID_DEATH_FALLBACK_THRESHOLD {
+            tokio::select! {
+                () = sleep(reconnect_delay) => {}
+                () = shutdown_requested(&mut shutdown) => break,
+            }
         }
     }
     info!("Reactive save task stopped");
 }
 
-/// A live niri event-stream connection: a blocking event reader plus a
-/// duplicate of the socket handle, so the async side can shut the connection
-/// down and unblock the reader even while niri is idle.
-pub struct EventConnection<F> {
-    pub read_event: F,
-    pub socket_shutdown: UnixStream,
-}
-
-/// Opens a connection to the niri IPC socket, returning the stream and a
-/// clone that can shut the connection down from another thread.
-pub fn open_niri_socket() -> std::io::Result<(UnixStream, UnixStream)> {
-    let socket_path = std::env::var_os(niri_ipc::socket::SOCKET_PATH_ENV).ok_or_else(|| {
-        std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "NIRI_SOCKET is not set, are you running this within niri?",
-        )
-    })?;
-    let stream = UnixStream::connect(socket_path)?;
-    let shutdown_handle = stream.try_clone()?;
-    Ok((stream, shutdown_handle))
-}
-
-/// Sends one JSON-line request and reads the JSON-line reply.
-pub fn request_reply(
-    stream: &mut BufReader<UnixStream>,
-    request: &Request,
-) -> std::io::Result<Reply> {
-    let mut buf = serde_json::to_string(&request).map_err(std::io::Error::other)?;
-    buf.push('\n');
-    stream.get_mut().write_all(buf.as_bytes())?;
-    buf.clear();
-    stream.read_line(&mut buf)?;
-    serde_json::from_str(&buf).map_err(std::io::Error::other)
-}
-
-/// Blocking reader over an established event stream; returns an error once
-/// the connection dies (or is shut down from the async side).
-pub fn event_reader(
-    stream: BufReader<UnixStream>,
-) -> impl FnMut() -> std::io::Result<niri_ipc::Event> {
-    let mut stream = stream;
-    move || {
-        let mut buf = String::new();
-        stream.read_line(&mut buf)?;
-        serde_json::from_str(&buf).map_err(std::io::Error::other)
+/// Periodic-save fallback: saves at `fallback_interval` and retries the
+/// subscription after each save, until niri accepts an event stream again (or
+/// shutdown is requested). Returns the newly accepted connection, or `None`
+/// when shutdown was requested.
+async fn periodic_fallback_until_stream(
+    file_path: &Path,
+    config: &Config,
+    app_config: &AppConfig,
+    fallback_interval: Duration,
+    shutdown: &mut watch::Receiver<bool>,
+) -> Option<EventConnection> {
+    loop {
+        tokio::select! {
+            () = sleep(fallback_interval) => {}
+            () = shutdown_requested(shutdown) => return None,
+        }
+        if *shutdown.borrow_and_update() {
+            return None;
+        }
+        if let Err(save_err) = save_session_with_backup(file_path, config, app_config).await {
+            error!("Error saving session: {}", save_err);
+        }
+        if let Ok(connection) = subscribe_event_stream().await {
+            return Some(connection);
+        }
     }
 }
 
-pub async fn subscribe_event_stream(
-) -> Result<EventConnection<impl FnMut() -> std::io::Result<niri_ipc::Event> + Send + 'static>> {
+/// A live niri event-stream connection: a blocking event reader plus a
+/// duplicate of the socket handle, so the async side can shut the connection
+/// down and unblock the reader even while niri is idle. The reader is boxed
+/// so every producer (`subscribe_event_stream`, the fallback loop) yields the
+/// same concrete type.
+pub struct EventConnection {
+    pub read_event: Box<dyn FnMut() -> std::io::Result<Option<ReadEvent>> + Send>,
+    pub socket_shutdown: UnixStream,
+}
+
+/// Blocking reader over an established event stream. Each call yields:
+/// - `Ok(Some(ReadEvent::Event(_)))` — one deserialized niri event,
+/// - `Ok(Some(ReadEvent::Unparsed(_)))` — one line the pinned niri-ipc
+///   version could not parse (protocol drift from a newer niri); the stream
+///   itself is still alive and must keep being read,
+/// - `Err(_)` — the connection died (EOF, I/O error, or shutdown from the
+///   async side).
+pub fn event_reader(
+    stream: BufReader<UnixStream>,
+) -> impl FnMut() -> std::io::Result<Option<ReadEvent>> {
+    let mut stream = stream;
+    move || {
+        let mut buf = String::new();
+        if stream.read_line(&mut buf)? == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "niri event stream closed",
+            ));
+        }
+        if let Ok(event) = serde_json::from_str(&buf) {
+            return Ok(Some(ReadEvent::Event(event)));
+        }
+        Ok(Some(ReadEvent::Unparsed(buf)))
+    }
+}
+
+pub async fn subscribe_event_stream() -> Result<EventConnection> {
     spawn_blocking(move || {
         let (stream, socket_shutdown) =
             open_niri_socket().context("Failed to connect to Niri IPC socket")?;
@@ -210,8 +282,15 @@ pub async fn subscribe_event_stream(
             Reply::Err(msg) => anyhow::bail!("Niri refused the event stream: {msg}"),
             _ => anyhow::bail!("Unexpected reply to event-stream request"),
         }
+        // The handshake reply was read under the request/reply timeout; event
+        // lines legitimately arrive minutes apart, so clear it before the
+        // reader parks on the stream.
+        stream
+            .get_mut()
+            .set_read_timeout(None)
+            .context("Failed to clear the event-stream read timeout")?;
         Ok(EventConnection {
-            read_event: event_reader(stream),
+            read_event: Box::new(event_reader(stream)),
             socket_shutdown,
         })
     })
@@ -222,7 +301,7 @@ pub async fn subscribe_event_stream(
 /// Saves (debounced) whenever a layout-relevant event arrives; returns when
 /// the event stream dies or a shutdown is requested.
 pub async fn drive_event_driven_saves(
-    connection: EventConnection<impl FnMut() -> std::io::Result<niri_ipc::Event> + Send + 'static>,
+    connection: EventConnection,
     file_path: &std::path::Path,
     config: &Config,
     app_config: &AppConfig,
@@ -236,10 +315,36 @@ pub async fn drive_event_driven_saves(
     let (tx, mut rx) = tokio::sync::mpsc::channel::<()>(16);
     let reader = spawn_blocking(move || {
         let mut read_event = read_event;
-        while let Ok(event) = read_event() {
-            if layout_relevant(&event) && tx.blocking_send(()).is_err() {
+        let mut logged_unparsed = 0usize;
+        let mut suppressed_unparsed = 0usize;
+        while let Ok(Some(outcome)) = read_event() {
+            let relevant = match outcome {
+                ReadEvent::Event(event) => layout_relevant(&event),
+                ReadEvent::Unparsed(line) => {
+                    // Unknown event variants may change the layout (this is
+                    // exactly how niri unstable drifts); be conservative and
+                    // save. The debounce collapses bursts, and byte-identical
+                    // captures skip the write entirely.
+                    if logged_unparsed < MAX_UNPARSED_LOG_PER_CONNECTION {
+                        logged_unparsed = logged_unparsed.saturating_add(1);
+                        warn!(
+                            "Skipping unparsable niri event line (niri newer than the pinned niri-ipc?): {}",
+                            truncate_for_log(&line)
+                        );
+                    } else {
+                        suppressed_unparsed = suppressed_unparsed.saturating_add(1);
+                    }
+                    true
+                }
+            };
+            if relevant && tx.blocking_send(()).is_err() {
                 break;
             }
+        }
+        if suppressed_unparsed > 0 {
+            warn!(
+                "Suppressed logging of {suppressed_unparsed} further unparsable niri event lines"
+            );
         }
     });
 
@@ -263,7 +368,11 @@ pub async fn drive_event_driven_saves(
                             .unwrap_or_else(tokio::time::Instant::now);
                         settle.as_mut().reset(next);
                     }
-                    None => break 'outer,
+                    // The stream died mid-debounce. Layout-relevant events
+                    // WERE delivered — flush the pending save instead of
+                    // dropping it, so a dying stream cannot lose the last
+                    // activity (the reconnect path re-subscribes afterwards).
+                    None => break,
                 },
             }
         }

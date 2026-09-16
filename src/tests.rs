@@ -1698,6 +1698,45 @@ fn layout_relevant_covers_geometry_changes() {
     assert!(!layout_relevant(&keyboard_event));
 }
 
+/// Real-niri regression fixture: a sanitized capture of the live event stream
+/// from niri unstable 2026-08-02 (feb3e43), 2026-09-16, titles redacted. It
+/// contains the up-front state-sync burst — including `CastsChanged`, the
+/// variant that niri-ipc 25.11 could not parse and that killed every stream
+/// ~2 ms after subscribe — plus one deliberate unknown-variant poison line.
+/// Every line must either deserialize or be identifiable as tolerated drift;
+/// re-pinning niri-ipc to a version lacking `CastsChanged` fails this test.
+#[test]
+fn live_niri_event_stream_fixture_parses_or_is_tolerated() {
+    let fixture = include_str!("testdata/niri-event-stream-2026-08-02.jsonl");
+    let mut parsed = 0usize;
+    let mut tolerated = 0usize;
+    for line in fixture.lines().filter(|line| !line.trim().is_empty()) {
+        match serde_json::from_str::<niri_ipc::Event>(line) {
+            Ok(event) => {
+                parsed += 1;
+                // Parsed events must be classifiable by the save loop.
+                let _ = layout_relevant(&event);
+            }
+            Err(_) => {
+                tolerated += 1;
+            }
+        }
+    }
+    assert!(
+        parsed >= 40,
+        "the pinned niri-ipc must understand (nearly) all of the 2026-08-02 capture; \
+         got {parsed} parsed, {tolerated} tolerated"
+    );
+    assert_eq!(
+        tolerated, 1,
+        "exactly the injected poison line may be tolerated"
+    );
+    assert!(
+        serde_json::from_str::<niri_ipc::Event>(r#"{"CastsChanged":{"casts":[]}}"#).is_ok(),
+        "the pinned niri-ipc must know CastsChanged (the 2026-09-15 production killer)"
+    );
+}
+
 #[test]
 fn restore_outcome_display_is_stable_for_humans() {
     assert_eq!(

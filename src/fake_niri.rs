@@ -33,7 +33,8 @@ use crate::run_health_check;
 use crate::run_service_loop;
 use crate::save::{
     drive_event_driven_saves, reactive_save_session, run_reactive_save_session,
-    shutdown_with_final_save, subscribe_event_stream, SAVE_DEBOUNCE_SECS,
+    shutdown_with_final_save, subscribe_event_stream, RAPID_DEATH_FALLBACK_THRESHOLD,
+    SAVE_DEBOUNCE_SECS,
 };
 use crate::session::{
     capture_session_json, save_session_with_backup, SavedWindow, VersionedSession, WorkspaceInfo,
@@ -62,6 +63,18 @@ pub struct SocketEnv {
 impl Drop for SocketEnv {
     fn drop(&mut self) {
         std::env::remove_var("NIRI_SOCKET");
+    }
+}
+
+impl SocketEnv {
+    /// Takes the env lock and points `$NIRI_SOCKET` at an arbitrary socket
+    /// (e.g. a raw never-replying server) for as long as the guard lives.
+    pub(crate) fn at(path: &Path) -> SocketEnv {
+        let guard = IPC_ENV_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        std::env::set_var("NIRI_SOCKET", path);
+        SocketEnv { _guard: guard }
     }
 }
 
@@ -97,6 +110,16 @@ struct FakeState {
     refuse_next_event_streams: usize,
     event_stream_connections: u64,
     pending_events: Vec<niri_ipc::Event>,
+    /// When set, an accepted event stream immediately emits a full state-sync
+    /// burst (mirroring real niri, which always sends the full current state
+    /// up-front) including a cast event and an unknown-variant poison line.
+    state_sync_burst: bool,
+    /// One-shot: close the next accepted event stream once this many event
+    /// lines have been written to it.
+    close_stream_after_lines: Option<usize>,
+    /// Accept the next N event-stream subscriptions, then close them without
+    /// writing a single event line (subscribe-ok-then-instant-death).
+    kill_next_event_streams: usize,
 }
 
 pub struct FakeNiri {
@@ -180,6 +203,24 @@ impl FakeNiri {
     /// error while ordinary requests keep working.
     pub(crate) fn refuse_event_streams(&self, count: usize) {
         self.lock().refuse_next_event_streams = count;
+    }
+
+    /// Accepted event streams emit the full state-sync burst up-front, like
+    /// real niri does (including one unknown-variant poison line).
+    pub(crate) fn emit_state_sync_burst(&self) {
+        self.lock().state_sync_burst = true;
+    }
+
+    /// One-shot: close the next accepted event stream after `event_count`
+    /// written events (0 = immediately after the handshake).
+    pub(crate) fn close_next_event_stream_after(&self, event_count: usize) {
+        self.lock().close_stream_after_lines = Some(event_count);
+    }
+
+    /// Accept the next `count` event-stream subscriptions and close them
+    /// instantly without writing any event line.
+    pub(crate) fn kill_next_event_streams(&self, count: usize) {
+        self.lock().kill_next_event_streams = count;
     }
 
     /// Number of accepted (non-refused) event-stream connections so far.
@@ -283,6 +324,22 @@ fn serve_connection(stream: UnixStream, state: Arc<Mutex<FakeState>>, stop: Arc<
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
                 st.event_stream_connections = st.event_stream_connections.saturating_add(1);
             }
+            let (kill, burst) = {
+                let mut st = state
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                let kill = st.kill_next_event_streams > 0;
+                if kill {
+                    st.kill_next_event_streams -= 1;
+                }
+                (kill, st.state_sync_burst)
+            };
+            if kill {
+                break;
+            }
+            if burst {
+                write_state_sync_burst(&state, &mut writer);
+            }
             push_events_forever(&state, &mut writer, stop);
             break;
         }
@@ -296,19 +353,25 @@ fn serve_connection(stream: UnixStream, state: Arc<Mutex<FakeState>>, stop: Arc<
     }
 }
 
-/// After an `EventStream` handshake: drain queued events as JSON lines,
-/// keeping the connection open so the subscriber sees a live stream.
+/// After an `EventStream` handshake: drain queued raw lines and events as
+/// JSON lines, keeping the connection open so the subscriber sees a live
+/// stream. Optionally closes the connection once the configured number of
+/// lines has been written (stream-death injection).
 fn push_events_forever(
     state: &Arc<Mutex<FakeState>>,
     writer: &mut UnixStream,
     stop: Arc<AtomicBool>,
 ) {
+    let mut written = 0usize;
     while !stop.load(Ordering::SeqCst) {
-        let events: Vec<niri_ipc::Event> = {
+        let (events, close_after) = {
             let mut st = state
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            std::mem::take(&mut st.pending_events)
+            (
+                std::mem::take(&mut st.pending_events),
+                st.close_stream_after_lines,
+            )
         };
         for event in events {
             let Ok(json) = serde_json::to_string(&event) else {
@@ -317,8 +380,44 @@ fn push_events_forever(
             if writeln!(writer, "{json}").is_err() {
                 return;
             }
+            written = written.saturating_add(1);
+        }
+        if close_after.is_some_and(|n| written >= n) {
+            let mut st = state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            st.close_stream_after_lines = None;
+            return;
         }
         std::thread::sleep(Duration::from_millis(30));
+    }
+}
+
+/// Writes the up-front state-sync burst a real niri always sends after an
+/// `EventStream` handshake: full workspaces + windows state, then sundry
+/// state events, `CastsChanged` (the line that killed niri-ipc 25.11 streams
+/// on real niri unstable 2026-08-02), and one unknown-variant poison line for
+/// future protocol drift.
+fn write_state_sync_burst(state: &Arc<Mutex<FakeState>>, writer: &mut UnixStream) {
+    let (windows, workspaces) = {
+        let st = state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        (st.windows.clone(), st.workspaces.clone())
+    };
+    let lines = [
+        serde_json::to_string(&niri_ipc::Event::WorkspacesChanged { workspaces }).unwrap(),
+        serde_json::to_string(&niri_ipc::Event::WindowsChanged { windows }).unwrap(),
+        r#"{"KeyboardLayoutsChanged":{"keyboard_layouts":{"names":["English (US)"],"current_idx":0}}}"#.to_string(),
+        r#"{"OverviewOpenedOrClosed":{"is_open":false}}"#.to_string(),
+        r#"{"ConfigLoaded":{"failed":false}}"#.to_string(),
+        r#"{"CastsChanged":{"casts":[]}}"#.to_string(),
+        r#"{"NsmFutureEventProbe":{"note":"unknown-variant tolerance"}}"#.to_string(),
+    ];
+    for line in lines {
+        if writeln!(writer, "{line}").is_err() {
+            return;
+        }
     }
 }
 
@@ -1140,6 +1239,201 @@ async fn shutdown_signal_unblocks_the_parked_event_reader() {
         "an idle stream with no layout events must not produce saves"
     );
     niri.close();
+}
+
+// --- state-sync burst tolerance (real-niri protocol drift regression) ---
+
+/// Real niri pushes the full state-sync burst immediately after accepting an
+/// `EventStream` subscription, and unstable niri adds event variants the
+/// pinned niri-ipc cannot parse (2026-09-15: `CastsChanged` killed every
+/// stream ~2 ms after subscribe, zero event-driven saves for 33 h in
+/// production). The reader must skip unknown lines, treat them as
+/// layout-relevant, and KEEP the stream alive.
+#[tokio::test]
+async fn state_sync_burst_and_unknown_event_lines_do_not_kill_the_stream() {
+    let niri = FakeNiri::start();
+    let _env = niri.env();
+    niri.set_windows(vec![fake_window(1, "firefox")]);
+    niri.set_workspaces(vec![niri_workspace(1, 1, Some("dev"), "DP-1")]);
+    niri.emit_state_sync_burst();
+
+    let session = niri.temp_dir().join("session.json");
+    let config = ipc_config();
+    let app_config = AppConfig::default();
+
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let task = tokio::spawn(run_reactive_save_session(
+        session.clone(),
+        config.clone(),
+        app_config.clone(),
+        Duration::from_secs(3600),
+        shutdown_rx,
+    ));
+
+    // The burst (including the poison line) is layout-relevant: a debounced
+    // save must fire even though not a single typed event was pushed.
+    wait_for_timeout(|| session.exists(), Duration::from_secs(10)).await;
+
+    // No flapping: the same subscription must still be the live one well past
+    // the reconnect backoff window.
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    assert_eq!(
+        niri.event_stream_connections(),
+        1,
+        "burst and unknown event lines must not tear down the stream"
+    );
+
+    // A later real event still saves through that same stream.
+    niri.set_windows(vec![fake_window(1, "firefox"), fake_window(2, "chromium")]);
+    niri.push_events(vec![niri_ipc::Event::WindowsChanged { windows: vec![] }]);
+    wait_for_timeout(
+        || std::fs::read_to_string(&session).is_ok_and(|content| content.contains("chromium")),
+        Duration::from_secs(10),
+    )
+    .await;
+    assert_eq!(
+        niri.event_stream_connections(),
+        1,
+        "the recovered stream must keep serving events without a reconnect"
+    );
+
+    shutdown_tx
+        .send(true)
+        .expect("shutdown channel receiver is alive");
+    match tokio::time::timeout(Duration::from_secs(5), task).await {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => panic!("reactive save task failed: {e}"),
+        Err(_) => panic!("reactive save task must stop promptly on shutdown"),
+    }
+    niri.close();
+}
+
+// --- stream death mid-debounce must not lose the pending save (F5) ---
+
+#[tokio::test]
+async fn stream_death_mid_debounce_flushes_the_pending_save() {
+    let niri = FakeNiri::start();
+    let _env = niri.env();
+    niri.set_windows(vec![fake_window(1, "firefox")]);
+    niri.set_workspaces(vec![niri_workspace(1, 1, Some("dev"), "DP-1")]);
+    // One layout event arrives, then the stream dies instantly — before the
+    // 2 s debounce settles.
+    niri.close_next_event_stream_after(1);
+    niri.push_events(vec![niri_ipc::Event::WindowsChanged { windows: vec![] }]);
+
+    let session = niri.temp_dir().join("session.json");
+    let config = ipc_config();
+    let app_config = AppConfig::default();
+
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let task = tokio::spawn(run_reactive_save_session(
+        session.clone(),
+        config,
+        app_config,
+        Duration::from_secs(3600),
+        shutdown_rx,
+    ));
+
+    // The debounced save must be flushed despite the stream dying mid-settle;
+    // dropping it would silently lose the last observed activity.
+    wait_for_timeout(|| session.exists(), Duration::from_secs(10)).await;
+
+    shutdown_tx
+        .send(true)
+        .expect("shutdown channel receiver is alive");
+    match tokio::time::timeout(Duration::from_secs(5), task).await {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => panic!("reactive save task failed: {e}"),
+        Err(_) => panic!("reactive save task must stop promptly on shutdown"),
+    }
+    niri.close();
+}
+
+// --- successful subscribe + instant death must still save periodically (F5) ---
+
+#[tokio::test]
+async fn rapid_stream_deaths_engage_periodic_fallback_saves() {
+    let niri = FakeNiri::start();
+    let _env = niri.env();
+    niri.set_windows(vec![fake_window(1, "firefox")]);
+    niri.set_workspaces(vec![niri_workspace(1, 1, Some("dev"), "DP-1")]);
+    // Every subscription is accepted, then closed without a single event:
+    // subscribe never fails, so only the rapid-death counter can save us.
+    niri.kill_next_event_streams(usize::MAX);
+
+    let session = niri.temp_dir().join("session.json");
+    let config = ipc_config();
+    let app_config = AppConfig::default();
+
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let task = tokio::spawn(run_reactive_save_session(
+        session.clone(),
+        config,
+        app_config,
+        Duration::from_millis(40),
+        shutdown_rx,
+    ));
+
+    // After RAPID_DEATH_FALLBACK_THRESHOLD consecutive instant deaths, the
+    // loop must mix periodic saves between reconnect attempts.
+    wait_for_timeout(|| session.exists(), Duration::from_secs(15)).await;
+    assert!(
+        niri.event_stream_connections() >= u64::from(RAPID_DEATH_FALLBACK_THRESHOLD),
+        "subscribes must keep being attempted while in the fallback cadence"
+    );
+
+    shutdown_tx
+        .send(true)
+        .expect("shutdown channel receiver is alive");
+    match tokio::time::timeout(Duration::from_secs(5), task).await {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => panic!("reactive save task failed: {e}"),
+        Err(_) => panic!("reactive save task must stop promptly on shutdown"),
+    }
+    niri.close();
+}
+
+// --- shutdown stays bounded when niri accepts but never replies (F7) ---
+
+#[tokio::test]
+async fn service_shuts_down_when_ipc_accepts_but_never_replies() {
+    let dir = tempfile::tempdir().unwrap();
+    let socket_path = dir.path().join("silent.sock");
+    let listener = UnixListener::bind(&socket_path).unwrap();
+    // Accept every connection and hold it open forever without replying —
+    // the pathological server that hung a real manager at runtime drop
+    // (2026-09-15: survived SIGTERM until SIGKILL).
+    std::thread::spawn(move || {
+        let mut held = Vec::new();
+        for stream in listener.incoming() {
+            match stream {
+                Ok(stream) => held.push(stream),
+                Err(_) => break,
+            }
+        }
+    });
+    let _env = SocketEnv::at(&socket_path);
+
+    let session = dir.path().join("session.json");
+    let mut config = ipc_config();
+    config.save_only = true;
+    let app_config = AppConfig::default();
+
+    let started = std::time::Instant::now();
+    run_service_loop(&session, &config, &app_config, async { Ok(()) })
+        .await
+        .expect("service loop must complete even when niri never replies");
+    // Grace (5 s) + final save under the IPC timeout (5 s) + slack: the exit
+    // must stay bounded instead of hanging on parked blocking IPC reads.
+    assert!(
+        started.elapsed() < Duration::from_secs(25),
+        "shutdown must not hang when IPC never replies (took {:?})",
+        started.elapsed()
+    );
+    assert!(
+        !session.exists(),
+        "no save can succeed against a server that never replies"
+    );
 }
 
 // --- per-app spawn serialization (strict sequence, not just the global cap) ---

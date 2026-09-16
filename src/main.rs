@@ -158,14 +158,25 @@ pub(crate) async fn run_service_loop(
     Ok(())
 }
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() {
     tracing_subscriber::fmt::init();
 
     let config = Config::parse();
-    config.validate()?;
+    if let Err(e) = config.validate() {
+        eprintln!("Error: {e:#}");
+        #[allow(clippy::exit)]
+        std::process::exit(2);
+    }
 
     info!("Starting niri-session-manager");
-    let session_file_path = get_session_file_path()?;
+    let session_file_path = match get_session_file_path() {
+        Ok(path) => path,
+        Err(e) => {
+            eprintln!("Error: {e:#}");
+            #[allow(clippy::exit)]
+            std::process::exit(2);
+        }
+    };
 
     let app_config = match load_app_config(config.app_config_path.as_deref()) {
         Ok(cfg) => cfg,
@@ -175,11 +186,25 @@ async fn main() -> Result<()> {
         }
     };
 
-    run_service_loop(
+    let result = run_service_loop(
         &session_file_path,
         &config,
         &app_config,
         handle_shutdown_signals(),
     )
-    .await
+    .await;
+
+    // Exit explicitly instead of unwinding: a blocking-pool IPC task parked on
+    // a wedged niri socket would otherwise hang the process at runtime drop,
+    // leaving the systemd service stuck "stopping" until the kill timeout
+    // (observed live 2026-09-15).
+    let code = match result {
+        Ok(()) => 0,
+        Err(e) => {
+            eprintln!("Error: {e:#}");
+            1
+        }
+    };
+    #[allow(clippy::exit)]
+    std::process::exit(code);
 }

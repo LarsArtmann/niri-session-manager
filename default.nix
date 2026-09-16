@@ -12,6 +12,7 @@ buildRustPackage (
         path: type:
         type == "directory"
         || lib.hasSuffix "docs/example-session.json" path
+        || lib.hasSuffix ".jsonl" (baseNameOf path)
         || lib.any (ext: lib.hasSuffix ext (baseNameOf path)) [
           ".rs"
           ".toml"

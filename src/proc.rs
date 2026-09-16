@@ -39,14 +39,46 @@ fn get_children_at(base: &Path, pid: u32) -> Vec<u32> {
         .join("task")
         .join(pid.to_string())
         .join("children");
-    fs::read_to_string(&path)
-        .ok()
-        .map(|s| {
-            s.split_whitespace()
-                .filter_map(|p| p.parse::<u32>().ok())
-                .collect()
-        })
-        .unwrap_or_default()
+    if let Ok(data) = fs::read_to_string(&path) {
+        let children: Vec<u32> = data
+            .split_whitespace()
+            .filter_map(|p| p.parse::<u32>().ok())
+            .collect();
+        if !children.is_empty() {
+            return children;
+        }
+    }
+    // The children file can be empty for some fork shapes even though the
+    // child exists and reports this pid as its ppid (observed live
+    // 2026-09-16: nix's .ghostty-wrapper reported zero children while the
+    // wrapped terminal's child was right there — terminal state silently
+    // never captured). Scanning /proc stat ppids is the ground truth `ps`
+    // itself uses.
+    scan_children_by_ppid(base, pid)
+}
+
+#[cfg(target_os = "linux")]
+fn scan_children_by_ppid(base: &Path, pid: u32) -> Vec<u32> {
+    let Ok(entries) = fs::read_dir(base) else {
+        return Vec::new();
+    };
+    let mut children = Vec::new();
+    for entry in entries.flatten() {
+        let Ok(name) = entry.file_name().into_string() else {
+            continue;
+        };
+        let Ok(candidate) = name.parse::<u32>() else {
+            continue;
+        };
+        if candidate == pid {
+            continue;
+        }
+        if read_stat_field_at(base, candidate, 4) == Some(i64::from(pid)) {
+            children.push(candidate);
+        }
+    }
+    children.sort_unstable();
+    children
 }
 
 fn is_shell(comm: &str, shell_names: &[String]) -> bool {
@@ -108,11 +140,22 @@ fn resolve_child_process_at(
             break;
         }
 
-        // Prefer the foreground child (matching tpgid); fall back to first child.
+        // Prefer the foreground child (matching tpgid); next prefer children
+        // that are neither shells nor helpers (kitty always spawns leaf
+        // helper kittens like `__atexit__` and `__watch_conf__` BESIDE the
+        // real child, and they sort first by pid); fall back to the first
+        // child. Descending into a leaf helper is a dead end.
         let next_pid = children
             .iter()
             .copied()
             .find(|&c| tpgid > 0 && c == tpgid)
+            .or_else(|| {
+                children.iter().copied().find(|&c| {
+                    read_comm_at(base, c).is_some_and(|comm| {
+                        !is_shell(&comm, shell_names) && !is_helper(&comm, helper_names)
+                    })
+                })
+            })
             .or_else(|| children.first().copied());
 
         let next_pid = next_pid?;
@@ -217,6 +260,90 @@ mod tests {
             .join("children");
         let content: String = pids.iter().map(|p| format!("{p} ")).collect();
         fs::write(children_path, content.trim()).unwrap();
+    }
+
+    /// Real shape observed live 2026-09-16 (nix .ghostty-wrapper): the
+    /// children file is EMPTY, the wrapper's tpgid is -1, yet the child
+    /// exists and points back via ppid.
+    fn write_stat(dir: &Path, pid: u32, comm: &str, ppid: u32, tpgid: i64) {
+        fs::write(
+            dir.join("stat"),
+            format!("{pid} ({comm}) S {ppid} {pid} {pid} 0 {tpgid} 0 0\n"),
+        )
+        .unwrap();
+    }
+
+    /// Real kitty shape observed live 2026-09-16: the terminal process has
+    /// leaf helper kittens (`__atexit__`, `__watch_conf__`) beside the real
+    /// child, sorted first by pid, and tpgid is -1 — the walk must not
+    /// descend into a helper dead-end.
+    #[test]
+    fn resolve_prefers_non_helper_children_over_leaf_helpers() {
+        let tmp = tempfile::tempdir().unwrap();
+
+        let kitty_dir = create_fake_proc_dir(tmp.path(), 3000);
+        write_cmdline(&kitty_dir, &["kitty", "sleep", "60"]);
+        write_comm(&kitty_dir, ".kitty-wrapped");
+        write_stat(&kitty_dir, 3000, ".kitty-wrapped", 1, -1);
+        write_children(&kitty_dir, &[3001, 3002, 3003]);
+
+        let atexit_dir = create_fake_proc_dir(tmp.path(), 3001);
+        write_cmdline(&atexit_dir, &["kitten", "__atexit__"]);
+        write_comm(&atexit_dir, "kitten");
+        write_stat(&atexit_dir, 3001, "kitten", 3000, -1);
+        write_children(&atexit_dir, &[]);
+
+        let sleep_dir = create_fake_proc_dir(tmp.path(), 3002);
+        write_cmdline(&sleep_dir, &["sleep", "60"]);
+        write_comm(&sleep_dir, "sleep");
+        write_stat(&sleep_dir, 3002, "sleep", 3000, 3002);
+        symlink("/home/user", sleep_dir.join("cwd")).unwrap();
+        write_children(&sleep_dir, &[]);
+
+        let watch_dir = create_fake_proc_dir(tmp.path(), 3003);
+        write_cmdline(&watch_dir, &["kitten", "__watch_conf__"]);
+        write_comm(&watch_dir, "kitten");
+        write_stat(&watch_dir, 3003, "kitten", 3000, -1);
+        write_children(&watch_dir, &[]);
+
+        let shell_names = vec!["fish".to_string()];
+        let helper_names = vec!["kitten".to_string()];
+        let result = resolve_child_process_at(tmp.path(), 3000, &shell_names, &helper_names, 20);
+        assert_eq!(
+            result,
+            Some((
+                vec!["sleep".to_string(), "60".to_string()],
+                "/home/user".to_string()
+            )),
+            "the walk must skip leaf helper kittens and resolve the real child"
+        );
+    }
+
+    #[test]
+    fn resolve_finds_child_when_children_file_lies() {
+        let tmp = tempfile::tempdir().unwrap();
+
+        let wrapper_dir = create_fake_proc_dir(tmp.path(), 2000);
+        write_cmdline(&wrapper_dir, &["ghostty", "-e", "btop"]);
+        write_comm(&wrapper_dir, ".ghostty-wrapper");
+        write_stat(&wrapper_dir, 2000, ".ghostty-wrapper", 1, -1);
+        write_children(&wrapper_dir, &[]); // empty, as on the live system
+
+        let btop_dir = create_fake_proc_dir(tmp.path(), 2001);
+        write_cmdline(&btop_dir, &["btop"]);
+        write_comm(&btop_dir, "btop");
+        write_stat(&btop_dir, 2001, "btop", 2000, 2001);
+        symlink("/home/user", btop_dir.join("cwd")).unwrap();
+        write_children(&btop_dir, &[]);
+
+        let shell_names = vec!["fish".to_string(), "bash".to_string()];
+        let helper_names: Vec<String> = vec![];
+        let result = resolve_child_process_at(tmp.path(), 2000, &shell_names, &helper_names, 20);
+        assert_eq!(
+            result,
+            Some((vec!["btop".to_string()], "/home/user".to_string())),
+            "an empty children file must fall back to scanning stat ppids"
+        );
     }
 
     #[test]
