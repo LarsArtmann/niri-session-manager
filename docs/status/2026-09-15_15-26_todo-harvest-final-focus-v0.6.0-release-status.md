@@ -59,7 +59,7 @@ Nothing is broken — but ranked honestly, worst first:
 
 ## f) Up to 50 things to get done next (brainstorm, ranked — most below the line are ROADMAP fuel, not commitments)
 
-**Verify/release-critical**
+### Verify/release-critical
 
 1. Re-run `restore_burst` benchmark post-focus-pass; compare against 100.4 ms/window (see `docs/benchmarks/`).
 2. Push `v0.5.0` + `v0.6.0` tags (needs your go-ahead).

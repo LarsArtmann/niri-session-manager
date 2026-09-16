@@ -100,7 +100,7 @@ Nothing in this session's delta is broken — every gate listed in a11 is green 
 | 34 | Check whether `dirs 5.0` (source of option-ext/MPL-2.0) has a maintained newer major with a smaller license surface                                                   | Low    | M      | Cleanup       |
 | 35 | Re-run `cargo clippy --all-features` after the concurrent session's final main.rs state (last run was against their near-final tree)                                  | Medium | S      | Quality       |
 
-_(Capped at 35 — the remainder would be filler; items 1–10 are the actionable core. Items marked "Decision" are blocked on section g.)_
+> Capped at 35 — the remainder would be filler; items 1–10 are the actionable core. Items marked "Decision" are blocked on section g.
 
 ## g) QUESTIONS I CANNOT ANSWER MYSELF
 

@@ -98,7 +98,7 @@ the write discipline cost round trips.
 
 ## e) WHAT WE SHOULD IMPROVE
 
-**Process**
+### Process
 
 - Run `cargo clippy --all-features` after every behavioral edit batch, not just
   at the end — 6 pedantic violations accumulated before the first clippy run.
@@ -112,7 +112,7 @@ the write discipline cost round trips.
   fmt`) rewrite files under you; always `view` immediately before `edit`, and
   grep-assert markers after batched edits (this session's AGENTS rule held up).
 
-**Code/test architecture**
+#### Code/test architecture
 
 - The fake server needs a **stream-death injection** (`kill_event_streams()` /
   EOF) — the reconnect half of the save loop is the least-tested code we ship.
@@ -129,7 +129,7 @@ the write discipline cost round trips.
 - The healthy-stream threshold (5s) and grace (5s) are magic consts with no
   end-to-end test pinning their behavior.
 
-**Docs**
+#### Docs
 
 - Add README line for the shutdown improvement; move the CHANGELOG entry to
   `Fixed` when the release notes are tidied.
@@ -140,7 +140,7 @@ the write discipline cost round trips.
 
 Prioritized; grouped; each is bounded.
 
-**Release & validation (P0)**
+### Release & validation (P0)
 
 1. Get maintainer go-ahead, then cut **release 0.5.0** (tag + push; SystemNix pins it).
 2. Tidy `[Unreleased]` before cutting: move shutdown-hang entry to `Fixed`; update `Cargo.toml` version.

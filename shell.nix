@@ -4,6 +4,8 @@ pkgs.mkShell {
     inherit (pkgs) # nix formatters
       nixfmt-rfc-style
       statix
+      # docs
+      markdownlint-cli
       # rust
       rustc
       cargo

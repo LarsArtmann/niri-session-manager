@@ -163,7 +163,7 @@ The 18:47 probe manager (against my pathological fake socket) logged "Received S
 
 ### f) NEXT TASKS (P0 → P2, ~40 items)
 
-**P0 — root cause and fix (blocking everything)**
+#### P0 — root cause and fix (blocking everything)
 
 1. ~~Re-run the byte-capture probe properly (fake socket that answers Windows/Workspaces too); log the manager's exact request bytes; settle F3.~~ done (2026-09-16 — manager sends valid quoted bare-string JSON; the 2026-09-15 probe sent unquoted invalid JSON)
 2. ~~Capture the full live state-sync burst + one event each of focus/window-open/window-close/workspace-switch into fixture files.~~ done (2026-09-16 — sanitized capture checked in as `src/testdata/niri-event-stream-2026-08-02.jsonl`)
@@ -181,7 +181,7 @@ The 18:47 probe manager (against my pathological fake socket) logged "Received S
 14. ~~Cut v0.6.1 (version, CHANGELOG section, tag) after user approval; user re-pins SystemNix.~~ done repo-side (2026-09-16 — version + CHANGELOG `[0.6.1]` cut); tag/push + SystemNix re-pin remain user actions
 15. After upgrade: verify the deployed service writes session.json again (mtime fresh within minutes) — the real production acceptance check. ← open, user-side post-deploy
 
-**P1 — finish the soak deliverables (post-fix)**
+#### P1 — finish the soak deliverables (post-fix)
 
 16. ~~Phase B: validate scratch session.json against `niri msg -j windows` — per-window app_id, workspace idx+name, focused id, `layout` (v5) presence on real data.~~ done (2026-09-16 — green)
 17. ~~Phase C: run `run-restore-proof.sh` — dry-run plan (dynamic count), real restore spawns exactly the dead carrier, immediate re-restore = "Restored 0", marker-present run = boot-gate skip.~~ done (2026-09-16 — green; encoded as soak Phase C)
@@ -194,7 +194,7 @@ The 18:47 probe manager (against my pathological fake socket) logged "Received S
 24. Longer unattended soak (30–60 min, or overnight via the deployed service post-upgrade) for durability evidence. ← open (tracked in TODO_LIST)
 25. Suspend-hook real test (`--save-once` on sleep.target) — adjacent TODO, now unblocked interest-wise. ← open
 
-**P2 — hardening and polish (observed tonight)**
+#### P2 — hardening and polish (observed tonight)
 
 26. `--health-check`: warn when session file age exceeds N × `save_interval` (would have caught F2 from inside the service). ← open
 27. Stream-health counter/log every N reconnects (rate-limited) so flapping is visible without journal diving. ← open
