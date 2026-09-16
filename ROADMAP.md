@@ -34,12 +34,12 @@ Raw ideas:
 - Duplicate-window dedup on save (distinct from single-instance dedup)
 - Config hot-reload via file watching (inotify) — restart picks up changes today
 - Per-app restore delay tuning, `--migrate` session-file migration command
-- ~~Spawn-timeout exponential backoff~~ done 2026-09-15: `--retry-delay` is the base of a capped exponential backoff (`next_retry_delay`, see `CHANGELOG.md` [Unreleased])
+- ~~Spawn-timeout exponential backoff~~ done 2026-09-15: `--retry-delay` is the base of a capped exponential backoff (`next_retry_delay`, see `CHANGELOG.md` [0.6.0])
 - SSH suspend guard integration
 - journald log-volume review (per-window restore info lines)
 - Cross-platform CI job (macOS build-only; proc module is linux-gated)
 - `nix flake check --all-systems` (aarch64)
-- ~~Split `src/main.rs` into modules once boundaries prove stable~~ done 2026-09-15: behavior-frozen split into config/ipc/session/terminal/restore/save (see `CHANGELOG.md` [Unreleased])
+- ~~Split `src/main.rs` into modules once boundaries prove stable~~ done 2026-09-15: behavior-frozen split into config/ipc/session/terminal/restore/save (see `CHANGELOG.md` [0.6.0])
 
 ### 2. Reactive session keeping
 
@@ -59,7 +59,7 @@ Make the service observable and debuggable without reading its source.
 Raw ideas:
 
 - systemd notify readiness signaling (`Type=notify`)
-- ~~Spawn-timeout exponential backoff~~ done 2026-09-15: `--retry-delay` is the base of a capped exponential backoff (`next_retry_delay`, see `CHANGELOG.md` [Unreleased])
+- ~~Spawn-timeout exponential backoff~~ done 2026-09-15: `--retry-delay` is the base of a capped exponential backoff (`next_retry_delay`, see `CHANGELOG.md` [0.6.0])
 - SSH suspend guard integration
 - journald log-volume review (per-window restore info lines)
 - Dry-run output designed for humans _and_ for machine diffing
