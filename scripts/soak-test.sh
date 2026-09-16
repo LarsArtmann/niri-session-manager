@@ -36,26 +36,26 @@ SCRATCH="${SOAK_SCRATCH:-/tmp/nsm-soak}"
 # wezterm reports org.wezfurlong.wezterm, alacritty reports Alacritty).
 CARRIER="${CARRIER:-kitty}"
 case "$CARRIER" in
-	kitty)
-		CARRIER_APP=kitty
-		CARRIER_CMD=(kitty sleep 45)
-		;;
-	foot)
-		CARRIER_APP=foot
-		CARRIER_CMD=(foot sleep 45)
-		;;
-	wezterm)
-		CARRIER_APP=org.wezfurlong.wezterm
-		CARRIER_CMD=(wezterm start -- sleep 45)
-		;;
-	alacritty)
-		CARRIER_APP=Alacritty
-		CARRIER_CMD=(alacritty -e sleep 45)
-		;;
-	*)
-		echo "ERROR: unknown CARRIER '$CARRIER' (supported: kitty, foot, wezterm, alacritty)" >&2
-		exit 1
-		;;
+kitty)
+	CARRIER_APP=kitty
+	CARRIER_CMD=(kitty sleep 45)
+	;;
+foot)
+	CARRIER_APP=foot
+	CARRIER_CMD=(foot sleep 45)
+	;;
+wezterm)
+	CARRIER_APP=org.wezfurlong.wezterm
+	CARRIER_CMD=(wezterm start -- sleep 45)
+	;;
+alacritty)
+	CARRIER_APP=Alacritty
+	CARRIER_CMD=(alacritty -e sleep 45)
+	;;
+*)
+	echo "ERROR: unknown CARRIER '$CARRIER' (supported: kitty, foot, wezterm, alacritty)" >&2
+	exit 1
+	;;
 esac
 
 mkdir -p "$SCRATCH"
