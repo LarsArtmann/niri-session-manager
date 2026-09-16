@@ -38,7 +38,7 @@ MARKER="$SCRATCH/data/niri-session-manager/restore-marker"
 if [ -z "${NIRI_SOCKET:-}" ]; then
 	# The compositor itself does not export NIRI_SOCKET; discover the socket
 	# from its canonical runtime location instead.
-	NIRI_SOCKET="$(ls /run/user/$(id -u)/niri.wayland-*.sock 2>/dev/null | head -1 || true)"
+	NIRI_SOCKET="$(find /run/user/"$(id -u)" -maxdepth 1 -name 'niri.wayland-*.sock' -print -quit 2>/dev/null || true)"
 fi
 if [ -z "${NIRI_SOCKET:-}" ]; then
 	echo "ERROR: NIRI_SOCKET not set and no running niri found" >&2
