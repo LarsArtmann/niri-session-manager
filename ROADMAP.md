@@ -69,6 +69,11 @@ Raw ideas:
 - Export/import scope: decide and document whether the restore marker belongs in exports
 - Backup compression or retention-policy review
 - `--retry-base-delay` rename decision (the flag now takes a base delay, not a fixed delay; a rename is a breaking CLI change for SystemNix — coordinate before pinning)
+- `IPC_REQUEST_TIMEOUT` configurability — considered 2026-09-16 and deferred:
+  the 5s const already bounds hangs with a logged error, nothing observed
+  shows it too short under load, and plumbing a tunable through every IPC
+  call site is a wide signature change (plus a module.nix option) for an
+  unproven need. Revisit with evidence of a loaded machine timing out.
 
 ### 4. Supply chain and packaging
 
@@ -93,15 +98,23 @@ record; rationale in the linked code):
    single-instance apps keep the stronger "skip if any instance runs" rule.
    Implemented in `plan_spawns` (`src/restore.rs`) with 8 unit tests plus an
    end-to-end re-restore test against the fake IPC server.
-3. **Terminal ground truth** — still open: which terminals run on real
-   hardware daily? Those profiles become must-not-regress; the rest get
-   verified against CLI docs only.
+3. **Terminal ground truth** — narrowed 2026-09-16: ghostty (daily driver),
+   kitty, foot, and alacritty all have live carrier-restore coverage
+   (`CARRIER=… scripts/soak-test.sh c`, 12/12 each); wezterm is not installed
+   on the daily driver. Still open: which of these run daily for the
+   maintainer — those become must-not-regress, the rest stay doc-verified.
 4. **`SESSION_FORMAT_VERSION` 3 → 4 — RESOLVED.** Bumped to 4. The version is
    descriptive, not enforced: files from versions 1–3 still load via
    `#[serde(alias)]`; the bump marks the key-name change honestly.
    See `docs/example-session.json` for the current shape.
    _Superseded 2026-09-15: format v5 added per-window layout capture; the
    version is still descriptive and pre-v5 files keep loading._
+5. **Terminal-restore UX — open (2026-09-16).** Restored terminals wrap the
+   captured command as `sh -c '<command>; exec $SHELL'`, so the terminal stays
+   open on an interactive shell after the command exits (documented in
+   README). Keep as-is, close after the command, or make it configurable?
+   Awaiting maintainer decision; current behavior is the safe default
+   (preserves scrollback, lets the user re-run).
 
 ## Non-goals
 

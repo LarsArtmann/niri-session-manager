@@ -5,6 +5,23 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **`--protocol-probe` self-diagnosis mode**: round-trips a Version request, then reads the head of a fresh event-stream subscription and reports exactly which lines the pinned niri-ipc cannot parse — a seconds-check for protocol drift after a niri upgrade (`run_protocol_probe` in `src/main.rs`; live-verified against real niri unstable 2026-08-02: 6 burst lines, no drift).
+- **Health-check staleness warning**: `--health-check` now warns when the session file is older than 2 × the save interval — the in-service signature of a save loop that silently stopped saving (the F1 recurrence detector; `session_staleness_warning` in `src/main.rs`).
+- **Rate-limited stream-flapping summary**: every 10 event-stream deaths the save loop logs one WARN health summary (total deaths, rapid-death streak, next reconnect delay) so chronic flapping is visible without journal diving (`flapping_summary` in `src/save.rs`).
+- **niri-ipc drift-guard canary workflow** (`.github/workflows/drift-guard.yml`): weekly (and on demand) repins niri-ipc to the newest published release and runs the drift-sensitive tests (live-capture fixture, tolerant-reader fuzz, wire-format pins, protocol probe) — `continue-on-error`, a signal rather than a release blocker.
+- **Markdownlint enforcement**: a CI step plus devshell entry for `markdownlint-cli` (`.markdownlint.json` was previously advisory — nothing ran it); the repo is clean under it, and a `.markdownlintignore` excludes `target/`.
+- **Drift-resilience tests** (suite now 139 + 1 ignored benchmark): a proptest pins that arbitrary event-stream lines never kill the reader (classify as serde does, EOF is the only death), the quoted bare-string request wire format is byte-pinned, `request_reply` round-trips over a real socketpair, and the exact-pin policy itself is asserted against Cargo.toml; plus an end-to-end `--save-once` test (the suspend-hook path).
+- **Soak-script carrier override** (`CARRIER=foot|wezterm|alacritty|kitty` for `scripts/soak-test.sh` phase C): per-carrier launch argv and niri app_id mapping; foot and alacritty carrier restores verified live 2026-09-16 (12/12 assertions each, same as kitty).
+
+### Changed
+
+- **Benchmark re-verified after the IPC rewrite**: restore burst remains 100.4 ms/window (30 windows / 3.013 s) after the raw-UnixStream client, the 5s timeouts, and the niri-ipc `=26.4.0` repin (`docs/benchmarks/restore-burst.md`).
+- **README niri-version compatibility section** documenting the exact-pin + tolerant-reader strategy, the `--protocol-probe` check, and the `; exec $SHELL` terminal-restore composition (restored terminals stay open after their command exits).
+
 ## [0.6.1] - 2026-09-16
 
 ### Added
