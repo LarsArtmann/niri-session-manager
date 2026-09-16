@@ -22,6 +22,12 @@ Re-run 2026-09-15 after the IPC client moved onto tokio's blocking pool
 100.4 ms/window)` — unchanged, as expected: the poll quantum dominates, and
 the blocking pool only moves socket waits off the async workers.
 
+Re-run 2026-09-16 after the IPC client was rewritten onto a raw `UnixStream`
+(hand-rolled request framing, 5s read/write timeouts) and `niri-ipc` was
+pinned to `=26.4.0`: `BENCH: 30 windows in 3.013s (10 windows/s,
+100.4 ms/window)` — unchanged; the framing rewrite and pin added no
+measurable overhead.
+
 ## Interpretation
 
 - The 100 ms/window floor is dominated by the **poll quantum**: after each

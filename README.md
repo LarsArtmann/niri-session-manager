@@ -8,7 +8,7 @@ A session manager for the Niri Wayland compositor that automatically saves and r
 
 ### Core
 
-- **Reactive session saving** — subscribes to niri's event stream and saves shortly after layout activity settles (debounced), with an interval fallback when the stream is unavailable
+- **Reactive session saving** — subscribes to niri's event stream and saves shortly after layout activity settles (debounced), with an interval fallback when the stream is unavailable; unknown event types are tolerated and never kill the stream (see [Niri version compatibility](#niri-version-compatibility))
 - **Idempotent session restoration** — re-running a restore spawns only what is missing: windows are matched against running instances by workspace first, then capped at `saved − running` per app, so you never get duplicates
 - **Per-app spawn serialization** — two windows of the same app are spawned one after another, eliminating the workspace-swap race
 - **Focus restoration** — the window that was focused when the session was saved gets focus back
@@ -27,7 +27,7 @@ A session manager for the Niri Wayland compositor that automatically saves and r
 - **Non-fatal restore** — if niri IPC isn't ready yet, logs the error and continues instead of crash-looping
 - **Config validation** at startup with clear error messages
 - **Structured logging** via `tracing` — journald-native output with timestamps and log levels (control verbosity with `RUST_LOG`)
-- **Supply-chain checks** — cargo-deny (advisories, licenses, bans) and cargo audit in CI
+- **Supply-chain checks** — cargo-deny (advisories, licenses, bans) in CI; cargo-audit available in the dev shell
 
 ### Behavior Notes
 
@@ -36,6 +36,15 @@ A session manager for the Niri Wayland compositor that automatically saves and r
 - **Retries are within one restore.** `--retry-attempts` controls how often a failing restore retries before giving up (non-fatally); it does not re-attempt across service restarts within the same boot.
 - **Restore is idempotent.** When M of N saved windows for an app are already running, restore matches them by workspace (name first, then index) and spawns at most `N − M` — a partial restore resumes instead of duplicating. Single-instance apps stay skipped while any instance runs.
 - **Unchanged sessions are not re-written.** If the captured layout is byte-identical to the file on disk, neither the backup rotation nor the write happens.
+
+### Niri version compatibility
+
+The daemon speaks niri's JSON IPC protocol, which evolves with niri releases. Two mechanisms keep it working across niri upgrades:
+
+- **Pinned wire types.** The `niri-ipc` dependency is pinned to an exact version (`=26.4.0`): request/response deserialization cannot silently change under a `cargo update` (the crate tracks niri's own releases and its maintainers recommend exact pins).
+- **Tolerant event reading.** The save loop treats an unparsable event-stream line as protocol drift, not a fatal error: it logs a bounded WARN with the raw line, conservatively treats it as layout-relevant, and keeps reading. An unknown event variant therefore cannot kill the stream — this exact failure mode was production-breaking before v0.6.1 (see `CHANGELOG.md`).
+
+If you run a niri build newer than the pin and see `unparsable event line` WARNs in the journal, saving still works; please report the raw line so the pin can be bumped. IPC requests carry a 5-second timeout, so a wedged or half-upgraded compositor cannot hang the service.
 
 ## Usage
 
@@ -127,6 +136,8 @@ Terminal-specific flags are handled automatically and are verified against the o
 - **ghostty**: `--working-directory=...`, `-e sh -c ...`
 - **alacritty**: `--working-directory`, `-e sh -c ...`
 
+Restored terminals wrap the captured command as `sh -c '<command>; exec $SHELL'`: when the captured command exits, the terminal stays open and drops into your login shell instead of closing (preserving scrollback and letting you re-run the command). Close-after-exit is not yet configurable — see `ROADMAP.md`.
+
 This feature is Linux-only.
 
 ## Installation
@@ -175,11 +186,13 @@ The session format is versioned (currently v5; the version is descriptive, not e
 ```bash
 cargo build                      # build
 cargo test                       # run test suite (unit + fake-IPC integration tests)
-cargo clippy --all-features      # lint (CI runs this exact form)
+cargo clippy --all-features --all-targets  # lint everything, including tests (CI runs the testless form)
 cargo fmt --all -- --check       # format check
 nix build .#niri-session-manager # nix build
 nix flake check                  # nix checks (includes treefmt)
 bash scripts/docs-citations.sh   # verify docs citations and links
+nix develop -c markdownlint-cli . # markdown lint (also a CI step)
+bash scripts/soak-test.sh all    # real-hardware soak against a running niri (phases A-C)
 ```
 
 See `CONTRIBUTING.md` for the ground rules.

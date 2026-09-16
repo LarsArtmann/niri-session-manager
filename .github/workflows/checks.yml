@@ -78,3 +78,5 @@ jobs:
         run: nix run nixpkgs#cargo-deny -- check advisories licenses bans sources
       - name: Living docs citations and links
         run: bash scripts/docs-citations.sh
+      - name: Markdown lint (living docs + status reports)
+        run: git ls-files '*.md' | xargs nix run nixpkgs#markdownlint-cli --
