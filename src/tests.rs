@@ -13,10 +13,12 @@
 
 use crate::config::*;
 use crate::fake_niri::niri_workspace;
+use crate::ipc::request_reply;
 use crate::restore::*;
 use crate::save::*;
 use crate::session::*;
 use crate::terminal::*;
+use crate::{session_staleness_warning, SESSION_STALENESS_INTERVALS};
 use niri_ipc::WorkspaceReferenceArg;
 use std::collections::HashMap;
 use std::fs;
@@ -1755,5 +1757,153 @@ fn restore_outcome_display_is_stable_for_humans() {
     assert_eq!(
         RestoreOutcome::Restored { spawned: 4 }.to_string(),
         "Restored 4 window(s)"
+    );
+}
+
+// --- M30: health telemetry + wire-format pins ---
+
+#[test]
+fn session_staleness_warning_fires_only_past_two_save_intervals() {
+    let fresh = Duration::from_secs(10 * 60);
+    let stale = Duration::from_secs(31 * 60);
+    assert!(
+        session_staleness_warning(Some(fresh), 15).is_none(),
+        "a 10-min-old session with a 15-min interval is not stale"
+    );
+    let warning = session_staleness_warning(Some(stale), 15)
+        .expect("a 31-min-old session with a 15-min interval must warn");
+    assert!(
+        warning.contains("stale"),
+        "warning names the problem: {warning}"
+    );
+    assert!(
+        warning.contains("30 min"),
+        "warning states the 2x-interval threshold: {warning}"
+    );
+    assert!(
+        session_staleness_warning(Some(Duration::from_secs(3 * 60)), 1).is_none(),
+        "staleness scales with the configured interval"
+    );
+    assert!(
+        session_staleness_warning(Some(Duration::from_secs(5 * 60)), 0).is_some(),
+        "a zero interval still yields a sane 2-min threshold"
+    );
+    assert!(
+        session_staleness_warning(None, 15).is_none(),
+        "unknown age never warns"
+    );
+    assert_eq!(SESSION_STALENESS_INTERVALS, 2);
+}
+
+#[test]
+fn flapping_summary_emits_once_per_flapping_summary_every_deaths() {
+    let mut since_summary = 0u32;
+    for _ in 0..FLAPPING_SUMMARY_EVERY - 1 {
+        assert!(
+            flapping_summary(&mut since_summary, 42, 1, RECONNECT_DELAY_INITIAL).is_none(),
+            "no summary before {FLAPPING_SUMMARY_EVERY} deaths"
+        );
+    }
+    let summary = flapping_summary(&mut since_summary, 42, 1, RECONNECT_DELAY_MAX)
+        .expect("the 10th death must emit the summary");
+    assert!(
+        summary.contains("42 deaths"),
+        "summary carries the total: {summary}"
+    );
+    assert_eq!(since_summary, 0, "emitting resets the counter");
+    for _ in 0..FLAPPING_SUMMARY_EVERY - 1 {
+        assert!(flapping_summary(&mut since_summary, 43, 2, RECONNECT_DELAY_INITIAL).is_none());
+    }
+    assert!(flapping_summary(&mut since_summary, 43, 2, RECONNECT_DELAY_INITIAL).is_some());
+}
+
+proptest! {
+    /// F1's lesson, pinned forever: arbitrary event-stream lines — valid JSON
+    /// of unknown variants, malformed JSON, raw garbage — must classify as
+    /// Event/Unparsed exactly as serde does and NEVER kill the reader; only
+    /// EOF (stream death) surfaces as an error.
+    #[test]
+    fn unknown_event_lines_never_kill_the_reader(line in "[^\n]{0,120}") {
+        use std::io::{BufReader, Write as _};
+        let (mut writer, reader) = std::os::unix::net::UnixStream::pair().unwrap();
+        writeln!(writer, "{line}").unwrap();
+        drop(writer); // EOF right after the line
+        let mut read_event = event_reader(BufReader::new(reader));
+        let outcome = read_event()
+            .unwrap()
+            .expect("the single line must be delivered before EOF");
+        match outcome {
+            ReadEvent::Event(event) => {
+                prop_assert!(serde_json::from_str::<niri_ipc::Event>(&line).is_ok());
+                let _ = layout_relevant(&event);
+            }
+            ReadEvent::Unparsed(returned) => {
+                prop_assert!(serde_json::from_str::<niri_ipc::Event>(&line).is_err());
+                prop_assert_eq!(returned.trim(), line.trim());
+            }
+        }
+        // EOF after the line is stream death (Err), never a hang.
+        prop_assert!(read_event().unwrap().is_err());
+    }
+}
+
+#[test]
+fn wire_format_requests_serialize_as_quoted_bare_strings() {
+    // niri's protocol serializes unit requests as a quoted bare string, e.g.
+    // `"EventStream"` (byte-probe-verified live 2026-09-15). Pin the exact
+    // bytes so a niri-ipc upgrade that changes request serialization fails
+    // here instead of against a real compositor.
+    for (request, wire) in [
+        (niri_ipc::Request::EventStream, "\"EventStream\""),
+        (niri_ipc::Request::Windows, "\"Windows\""),
+        (niri_ipc::Request::Workspaces, "\"Workspaces\""),
+        (niri_ipc::Request::Version, "\"Version\""),
+    ] {
+        assert_eq!(serde_json::to_string(&request).unwrap(), wire);
+    }
+}
+
+#[test]
+fn request_reply_round_trips_over_a_real_socket() {
+    use std::io::{BufRead as _, BufReader, Write as _};
+    let (client_sock, server_sock) = std::os::unix::net::UnixStream::pair().unwrap();
+    let peer = std::thread::spawn(move || {
+        let mut peer_stream = BufReader::new(server_sock);
+        let mut buf = String::new();
+        peer_stream.read_line(&mut buf).unwrap();
+        assert_eq!(
+            buf, "\"Version\"\n",
+            "the request must arrive on the wire as a quoted bare string"
+        );
+        peer_stream
+            .get_mut()
+            .write_all(b"{\"Ok\":{\"Version\":\"probe-1.2.3\"}}\n")
+            .unwrap();
+    });
+    let mut client = BufReader::new(client_sock);
+    let reply = request_reply(&mut client, &niri_ipc::Request::Version).unwrap();
+    assert!(
+        matches!(
+            reply,
+            niri_ipc::Reply::Ok(niri_ipc::Response::Version(ref v)) if v == "probe-1.2.3"
+        ),
+        "unexpected reply: {reply:?}"
+    );
+    peer.join().unwrap();
+}
+
+#[test]
+fn niri_ipc_dependency_stays_exactly_pinned() {
+    // Wire-format pin policy (AGENTS.md): niri-ipc must be an EXACT pin so
+    // `cargo update` can never silently change IPC deserialization. The
+    // functional drift guard is the fixture test above; this pins the pin.
+    let manifest = include_str!("../Cargo.toml");
+    let line = manifest
+        .lines()
+        .find(|l| l.trim_start().starts_with("niri-ipc"))
+        .unwrap_or_else(|| panic!("niri-ipc dependency line missing from Cargo.toml"));
+    assert!(
+        line.contains("= \""),
+        "niri-ipc must stay exactly pinned (found: {line})"
     );
 }
