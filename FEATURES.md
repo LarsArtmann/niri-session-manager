@@ -73,4 +73,4 @@
 
 ---
 
-_Verified against code 2026-09-16 (139 tests + 1 ignored benchmark, all green; foot + alacritty carrier soaks 12/12)._
+_Verified against code 2026-09-16 (139 tests + 1 ignored benchmark, all green; foot + alacritty carrier soaks 12/12); re-verified 2026-09-26 (full suite green at 139, drift-guard's first scheduled run green 2026-09-21, deployed v0.6.2 saving in production)._

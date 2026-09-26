@@ -7,9 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Added
+### Fixed
 
-- Nothing yet.
+- **The drift-guard canary reported green while its resolver had failed**: the first `workflow_dispatch` run failed its resolver step yet the job passed, because job-level `continue-on-error` masked the breakage. `continue-on-error` is now scoped to the test step only (drift findings stay a non-blocking signal; infrastructure failures go red), the resolver ANSI-strips `cargo search` output, and it falls back to the sparse registry index via curl+jq when `cargo search` returns empty on GitHub runners (`348d5a8`; first weekly scheduled run after the fix went green 2026-09-21, run `35559642666`).
 
 ## [0.6.2] - 2026-09-16
 

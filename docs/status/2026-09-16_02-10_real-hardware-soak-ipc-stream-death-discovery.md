@@ -139,7 +139,7 @@ The 18:47 probe manager (against my pathological fake socket) logged "Received S
 5. ~~`scripts/soak-test.sh` in-repo encoding of the procedure (+ docs).~~ done (2026-09-16)
 6. ~~Clippy (`--all-features --all-targets`) — deferred from baseline, still owed.~~ done (2026-09-16 — clean)
 7. ~~Test-suite 5× loop, CI test-count bump, docs-citations run — all pending post-fix.~~ done (2026-09-16 — ×5 green at 131 tests, CI `expected=131`, citations green; markdownlint not runnable locally, CI covers)
-8. v0.6.1 release + SystemNix re-pin coordination. ← repo side done 2026-09-16 (version + CHANGELOG cut); tag/push + re-pin + post-deploy verification remain open
+8. ~~v0.6.1 release + SystemNix re-pin coordination. ← repo side done 2026-09-16 (version + CHANGELOG cut); tag/push + re-pin + post-deploy verification remain open~~ done (2026-09-16/26 — the never-tagged 0.6.1 batch folded into **v0.6.2**, tagged + pushed as `89a3c6d`; SystemNix re-pinned; the deployed service runs 0.6.2 with a fresh `session.json` — acceptance observed 2026-09-26)
 
 ### d) TOTALLY FUCKED UP (honest ledger)
 
@@ -179,7 +179,7 @@ The 18:47 probe manager (against my pathological fake socket) logged "Received S
 12. ~~Full test suite ×5 (timing-sensitive change rule); update fake server with burst mode; bump CI `expected` count for new tests.~~ done (2026-09-16 — ×5 green at 131; CI `expected=131`)
 13. ~~Update TODO_LIST (soak item resolution + new High items for F1/F5/F6), CHANGELOG `[Unreleased]`, AGENTS.md invariants ("fake must emulate state-sync burst", "probe before soak", "save-on-stream-death").~~ done (2026-09-16)
 14. ~~Cut v0.6.1 (version, CHANGELOG section, tag) after user approval; user re-pins SystemNix.~~ done repo-side (2026-09-16 — version + CHANGELOG `[0.6.1]` cut); tag/push + SystemNix re-pin remain user actions
-15. After upgrade: verify the deployed service writes session.json again (mtime fresh within minutes) — the real production acceptance check. ← open, user-side post-deploy
+15. ~~After upgrade: verify the deployed service writes session.json again (mtime fresh within minutes) — the real production acceptance check. ← open, user-side post-deploy~~ done (observed 2026-09-26 — deployed store path is `niri-session-manager-0.6.2`; `session.json` mtime current; multi-day backup trail since the ~2026-09-25 restart)
 
 #### P1 — finish the soak deliverables (post-fix)
 
@@ -198,13 +198,13 @@ The 18:47 probe manager (against my pathological fake socket) logged "Received S
 
 26. ~~`--health-check`: warn when session file age exceeds N × `save_interval` (would have caught F2 from inside the service). ← open~~ done (2026-09-16 — session_staleness_warning in src/main.rs, wired into --health-check, unit-tested)
 27. ~~Stream-health counter/log every N reconnects (rate-limited) so flapping is visible without journal diving. ← open~~ done (2026-09-16 — flapping_summary in src/save.rs: one WARN per 10 stream deaths (total, streak, next delay), cadence unit-tested)
-28. Consider `serde(deny_unknown_fields)`-style strictness tests for `SessionData` in the opposite direction (already property-tested; keep green). ← open
+28. ~~Consider `serde(deny_unknown_fields)`-style strictness tests for `SessionData` in the opposite direction (already property-tested; keep green). ← open~~ **Won't implement — the format's forward-compat contract requires unknown future keys to LOAD (a hardening test pins it); strict parsing contradicts it, and the tolerant direction is already property-tested.**
 29. ~~Record tonight's captured burst as `docs/` evidence (anonymized) for future protocol archaeology.~~ done (2026-09-16 — `src/testdata/niri-event-stream-2026-08-02.jsonl`, titles sanitized)
-30. README/FEATURES: document niri-version compatibility expectations for the fork (unstable-niri users need the fix; stable-niri users unaffected — verify against a stable niri if one is available). ← open
-31. ROADMAP Q3 partial: ghostty is observably a daily driver on this machine — its profile gets must-not-regress real-binary coverage first; ask which others (question 3 adjacent). ← partially done (ghostty + kitty now real-verified 2026-09-16; other terminals still pending)
+30. ~~README/FEATURES: document niri-version compatibility expectations for the fork (unstable-niri users need the fix; stable-niri users unaffected — verify against a stable niri if one is available). ← open~~ done (2026-09-16 — README "Niri version compatibility" section + `--protocol-probe` guidance shipped in 0.6.2; stable-niri verification remains impossible here, no stable niri installed)
+31. ~~ROADMAP Q3 partial: ghostty is observably a daily driver on this machine — its profile gets must-not-regress real-binary coverage first; ask which others (question 3 adjacent). ← partially done (ghostty + kitty now real-verified 2026-09-16; other terminals still pending)~~ done (2026-09-16 — foot 12/12 and alacritty 13/13 carrier restores added; wezterm not installed; the maintainer-preference half stays routed to ROADMAP Q3)
 32. ~~Reconcile: `Cargo.toml` says `niri-ipc = "25.5.1"` but lock resolves 25.11.0 — pin exactly (`=`, per the crate's own recommendation) once the target version is chosen, so upstream patch releases can't shift IPC semantics silently.~~ done (2026-09-16 — `niri-ipc = "=26.4.0"`)
-33. CI idea: a job that builds against the newest niri-ipc and runs the fixture tests, guarding future drift. ← open
-34. Consider a `--protocol-probe` debug subcommand (dump raw request bytes + first N burst lines) so users can self-diagnose IPC breakage. ← open
+33. ~~CI idea: a job that builds against the newest niri-ipc and runs the fixture tests, guarding future drift. ← open~~ done (2026-09-16 — `.github/workflows/drift-guard.yml`, weekly + dispatch; resolver-masking bug fixed in `348d5a8`; first weekly scheduled run green 2026-09-21, run `35559642666`)
+34. ~~Consider a `--protocol-probe` debug subcommand (dump raw request bytes + first N burst lines) so users can self-diagnose IPC breakage. ← open~~ done (2026-09-16 — `--protocol-probe` shipped in 0.6.2, live-verified against real niri unstable 2026-08-02: 6 burst lines, no drift, exit 0)
 
 ### g) QUESTIONS (cannot be answered from inside the session)
 

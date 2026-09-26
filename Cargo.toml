@@ -22,7 +22,7 @@ proptest = "1.11.0"
 tempfile = "3"
 
 [lints.clippy]
-# Group denies (pedantic, nursery) are MSRV-stable; explicit lint names must exist on the project's MSRV (rust-version).
+# Group denies (pedantic, nursery) are MSRV-stable; explicit lint names must exist on the project's MSRV (stable Rust, edition 2021 — no rust-version key is declared, so do not cite one here).
 pedantic = { level = "deny", priority = -1 }
 nursery = { level = "deny", priority = -1 }
 unwrap_used = "deny"
