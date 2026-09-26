@@ -62,26 +62,26 @@ report: `2026-09-16_14-40_buildflow-triage-repo-tail-batch-and-alacritty-bug.md`
 
 ## b) PARTIALLY DONE
 
-1. **markdownlint + drift-guard + CI count in GitHub CI**: added and
+1. ~~**markdownlint + drift-guard + CI count in GitHub CI**: added and
    locally parity-verified, but **zero runs on GitHub yet** — nothing pushed.
    The new workflow steps are unproven on a real runner (runner nix/PATH
-   quirks possible).
-2. **Durability soak**: local 36-min leg green; the **overnight
-   deployed-service leg is the real evidence** and is blocked on deploy.
+   quirks possible).~~ Proven on GitHub 2026-09-16: Checks green on `main` and the `v0.6.2` tag with the markdownlint step (runs `35101220116`, `35101221728`); drift-guard dispatches green; first weekly scheduled run green 2026-09-21 (run `35559642666`).
+2. ~~**Durability soak**: local 36-min leg green; the **overnight
+   deployed-service leg is the real evidence** and is blocked on deploy.~~ Deploy leg satisfied by production: the re-pinned 0.6.2 service has been saving since the ~2026-09-25 restart (fresh mtime + multi-day backup trail, observed 2026-09-26).
 3. **Suspend-hook test**: `--save-once` covered end-to-end against the
    fake; the live `sleep.target` oneshot leg is not exercised (systemctl
    blocked by CLI policy — user can run one suspend/resume cycle).
 4. **wezterm carrier**: script support shipped; binary not installed here,
    so that profile remains doc-verified only.
-5. **`/tmp/nsm-soak/` curation**: fixtures already extracted into the repo;
-   raw logs still there pending deploy acceptance (intentional).
+5. ~~**`/tmp/nsm-soak/` curation**: fixtures already extracted into the repo;
+   raw logs still there pending deploy acceptance (intentional).~~ Done — the directory no longer exists (observed 2026-09-26); durable fixtures live in `src/testdata/`.
 
 ## c) NOT STARTED (deliberate or blocked)
 
-1. **Tag + push the release** — no `v0.6.1` tag exists; explicit go required
-   (and now a version decision: see g).
-2. **SystemNix re-pin + service restart** — user-side; see d6 for why this
-   is the burning item.
+1. ~~**Tag + push the release** — no `v0.6.1` tag exists; explicit go required
+   (and now a version decision: see g).~~ Done — released as **v0.6.2** (fold decision), tagged + pushed as `89a3c6d`.
+2. ~~**SystemNix re-pin + service restart** — user-side; see d6 for why this
+   is the burning item.~~ Done — re-pinned; the deployed service runs 0.6.2 with a fresh `session.json` (observed 2026-09-26).
 3. **Terminal close-after-exit knob** — ROADMAP Q5, awaiting decision.
 4. `nix flake check --all-systems` (aarch64), coverage reporting in CI,
    config hot-reload — ROADMAP raw ideas, untouched.
@@ -146,37 +146,37 @@ report: `2026-09-16_14-40_buildflow-triage-repo-tail-batch-and-alacritty-bug.md`
 
 | # | Task | Owner |
 | --- | --- | --- |
-| 1 | Version decision + tag + push (v0.6.2 fold or v0.6.1 as-is) | user |
-| 2 | SystemNix re-pin to the new tag + restart service | user |
-| 3 | Post-deploy acceptance: fresh session.json mtime within minutes | user |
-| 4 | Verify first real CI run incl. markdownlint step + drift-guard dispatch | user+repo |
+| ~~1~~ | ~~Version decision + tag + push (v0.6.2 fold or v0.6.1 as-is)~~ done — folded into v0.6.2, tagged + pushed 2026-09-16 (`89a3c6d`); Checks green on the tag (run 35101221728) | ~~user~~ |
+| ~~2~~ | ~~SystemNix re-pin to the new tag + restart service~~ done — SystemNix re-pinned; deployed store path confirmed niri-session-manager-0.6.2 (observed 2026-09-26) | ~~user~~ |
+| ~~3~~ | ~~Post-deploy acceptance: fresh session.json mtime within minutes~~ done — session.json mtime current at verification; multi-day backup trail since the ~2026-09-25 restart (observed 2026-09-26) | ~~user~~ |
+| ~~4~~ | ~~Verify first real CI run incl. markdownlint step + drift-guard dispatch~~ done — Checks green on main + the v0.6.2 tag incl. the markdownlint step (runs 35101220116, 35101221728); drift-guard dispatches green; first weekly scheduled run green 2026-09-21 (run 35559642666) | ~~user+repo~~ |
 | 5 | One real suspend/resume cycle to exercise the sleep.target hook live | user |
-| 6 | Overnight deployed-service durability soak | either |
+| ~~6~~ | ~~Overnight deployed-service durability soak~~ done — satisfied by production: the 0.6.2 service has been saving since the re-pin (fresh mtime + multi-day backups, observed 2026-09-26); local 36-min leg green 2026-09-16 | ~~either~~ |
 | 7 | wezterm carrier run (needs install or another machine) | repo |
 | 8 | Soak script: end-of-run carrier cleanup | repo |
 | 9 | Promote the display-width table realigner into `scripts/` | repo |
-| 10 | `--print-config` (dump effective CLI+TOML) — helps config-drift bugs like Alacritty's | repo (ROADMAP idea) |
+| ~~10~~ | ~~`--print-config` (dump effective CLI+TOML) — helps config-drift bugs like Alacritty's~~ done — routed to ROADMAP Operability (--print-config stays a raw idea until a demand signal) | ~~repo (ROADMAP idea)~~ |
 | 11 | Config-version hint when shipped defaults change | repo |
-| 12 | Decide terminal close-after-exit (ROADMAP Q5) → then implement knob or keep | user→repo |
+| ~~12~~ | ~~Decide terminal close-after-exit (ROADMAP Q5) → then implement knob or keep~~ done — routed to ROADMAP Open Question 5 (maintainer decision, deliberately open) | ~~user→repo~~ |
 | 13 | Clap-level conflict tests for mode flags (`--protocol-probe` vs others) | repo |
-| 14 | Weekly drift-guard: watch its first scheduled run; bump pin when it fires red | repo |
+| ~~14~~ | ~~Weekly drift-guard: watch its first scheduled run; bump pin when it fires red~~ done — first weekly scheduled run green 2026-09-21 (run 35559642666); no pin bump needed | ~~repo~~ |
 | 15 | If/when niri adds new event variants: capture fixture refresh procedure (probe → fixture → pin bump) documented in AGENTS | repo |
-| 16 | `nix flake check --all-systems` (aarch64) CI job | repo (ROADMAP) |
-| 17 | Coverage reporting in CI | repo (ROADMAP) |
+| ~~16~~ | ~~`nix flake check --all-systems` (aarch64) CI job~~ done — routed to ROADMAP (raw idea) | ~~repo (ROADMAP)~~ |
+| ~~17~~ | ~~Coverage reporting in CI~~ done — routed to ROADMAP (raw idea) | ~~repo (ROADMAP)~~ |
 | 18 | Actionlint as a CI step (currently manual/dev-only) | repo |
-| 19 | Session-format v5 geometry application design (blocked on soak data review) | repo (ROADMAP) |
-| 20 | Archive the 02-10 discovery report once deploy acceptance closes its last items | repo |
-| 21 | Curate `/tmp/nsm-soak/` raw logs post-deploy | repo |
-| 22 | `IPC_REQUEST_TIMEOUT` tunable — only if a loaded machine ever shows 5s timeouts | repo (deferred) |
+| ~~19~~ | ~~Session-format v5 geometry application design (blocked on soak data review)~~ done — routed to ROADMAP (design waits for soak-data review; v5 geometry still has no consumer) | ~~repo (ROADMAP)~~ |
+| ~~20~~ | ~~Archive the 02-10 discovery report once deploy acceptance closes its last items~~ done — the 02-10 report was fully resolved inline and moved to docs/status/archived/ in the 2026-09-26 docs-health pass | ~~repo~~ |
+| ~~21~~ | ~~Curate `/tmp/nsm-soak/` raw logs post-deploy~~ done — /tmp/nsm-soak/ no longer exists (observed 2026-09-26); durable fixtures already in src/testdata/ | ~~repo~~ |
+| ~~22~~ | ~~`IPC_REQUEST_TIMEOUT` tunable — only if a loaded machine ever shows 5s timeouts~~ done — deferred, recorded in ROADMAP Operability with its revisit evidence | ~~repo (deferred)~~ |
 | 23 | ROADMAP Q3: maintainer names their daily-driver terminals → must-not-regress set | user |
 
 ## g) QUESTIONS (cannot be answered from inside the session)
 
-1. **Release shape**: no tag exists yet. Cut **v0.6.2** (bump version, fold
+1. ~~**Release shape**: no tag exists yet. Cut **v0.6.2** (bump version, fold
    `[Unreleased]` into it — one coherent release with the alacritty fix) or
    tag **v0.6.1** exactly as the hotfix was scoped (extras ride along in
    `[Unreleased]`)? Either way: am I authorized to tag and push
-   origin/main + tag when you say go, or do you press the button?
+   origin/main + tag when you say go, or do you press the button?~~ **Resolved 2026-09-16: the v0.6.2 fold was chosen and shipped** (tag `v0.6.2` at `89a3c6d`, pushed; Checks green on the tag).
 2. **May I disrupt the desktop again for the live suspend-hook check**
    (one sleep/resume cycle, ~1 min of interruption), or do you want to
    trigger suspend yourself at a convenient moment?
