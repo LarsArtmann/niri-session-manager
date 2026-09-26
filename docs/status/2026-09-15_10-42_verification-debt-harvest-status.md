@@ -182,23 +182,23 @@
 
 ## c) NOT STARTED
 
-1. **v0.5.0 push** — blocked on maintainer go-ahead (tag exists locally at `00424ca`;
-   SystemNix must be ready to pin). Unchanged from 09:47.
-2. **Real-hardware soak test** — no live niri here (`$NIRI_SOCKET` unset); also awaiting
-   the format decision (maintainer-driven / scripted harness / hybrid).
+1. ~~**v0.5.0 push** — blocked on maintainer go-ahead (tag exists locally at `00424ca`;~~ done — v0.5.0 pushed 2026-09-15 (and v0.6.0, v0.6.2 since) — all on origin
+   ~~SystemNix must be ready to pin). Unchanged from 09:47.~~
+2. ~~**Real-hardware soak test** — no live niri here (`$NIRI_SOCKET` unset); also awaiting~~ done — 2026-09-16 — soak green end-to-end (A 18/18, B 8/8, C 12/12) via scripts/soak-test.sh
+   ~~the format decision (maintainer-driven / scripted harness / hybrid).~~
 3. **Terminal ground truth (ROADMAP Q3)** — blocked on maintainer input. Unchanged.
 4. **Applying captured geometry at restore** — deliberately gated on the soak test.
-5. **The focus-steal fix itself** (final focus pass after all spawns settle) — the race is
-   now _proven_ and logged, but the fix needs an implement-vs-accept decision; it touches
-   restore ordering, which is behavior.
-6. **HARVEST of _this_ report's section (f)** — the skill-mandated follow-up; deferred
-   because the standing instruction for this round is "report, then WAIT".
+5. ~~**The focus-steal fix itself** (final focus pass after all spawns settle) — the race is~~ done — shipped in v0.6.0 — the final focus pass after all spawns settle (spawn_windows, src/restore.rs); ordering pinned by the harness focus test
+   ~~now _proven_ and logged, but the fix needs an implement-vs-accept decision; it touches~~
+   ~~restore ordering, which is behavior.~~
+6. ~~**HARVEST of _this_ report's section (f)** — the skill-mandated follow-up; deferred~~ done — executed by the 15:26 session (harvest into TODO_LIST/ROADMAP); this report's section (f) items were re-resolved inline in the 2026-09-26 docs-health pass
+   ~~because the standing instruction for this round is "report, then WAIT".~~
 7. **`nix flake check --all-systems` (aarch64)** — still open; every `nix flake check`
    run prints the reminder.
 8. **`--retry-base-delay` rename decision** — now filed as a ROADMAP question; needs
    SystemNix coordination before any CLI change.
-9. **Release flow: 0.5.1 vs 0.6.0** for the `[Unreleased]` section + Cargo.toml bump —
-   TODO row added this round; needs a maintainer decision.
+9. ~~**Release flow: 0.5.1 vs 0.6.0** for the `[Unreleased]` section + Cargo.toml bump —~~ done — resolved as v0.6.0 (cut 2026-09-15 — carried features, not just fixes); the chain continued to v0.6.2
+   ~~TODO row added this round; needs a maintainer decision.~~
 10. **Explicit per-task commits** — still awaiting authorization (see g).
 
 ---

@@ -165,9 +165,9 @@
 
 ## c) NOT STARTED
 
-1. **v0.5.0 tag push** — blocked on maintainer go-ahead (I never push unprompted).
-2. **Real-hardware soak test** — reactive saves + idempotent restore on the daily driver; no live
-   niri in this environment (`$NIRI_SOCKET` unset, no `niri` process).
+1. ~~**v0.5.0 tag push** — blocked on maintainer go-ahead (I never push unprompted).~~ done — v0.5.0 pushed 2026-09-15 (and v0.6.0, v0.6.2 since) — all on origin
+2. ~~**Real-hardware soak test** — reactive saves + idempotent restore on the daily driver; no live~~ done — 2026-09-16 — real-hardware soak green end-to-end via scripts/soak-test.sh
+   ~~niri in this environment (`$NIRI_SOCKET` unset, no `niri` process).~~
 3. **Terminal ground truth (ROADMAP Q3)** — which terminal profiles get must-not-regress status;
    blocked on maintainer input.
 4. **Applying captured geometry at restore** — deliberately gated on the soak test.

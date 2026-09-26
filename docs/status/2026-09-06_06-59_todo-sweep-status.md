@@ -54,20 +54,20 @@ all resolve · `cargo run -- --version` OK · `nix flake check` all checks passe
 
 ## c) NOT STARTED (remains open, verified against code today)
 
-- **Cut release 0.5.0** — BLOCKED on maintainer go-ahead (tag/push).
-- **Real-hardware soak test** of reactive saves + idempotent restore — needs
-  the daily driver; the fake cannot prove niri-event timing.
+- ~~**Cut release 0.5.0** — BLOCKED on maintainer go-ahead (tag/push).~~ done (v0.5.0 tagged + pushed 2026-09-15; v0.6.0 and v0.6.2 have followed)
+- ~~**Real-hardware soak test** of reactive saves + idempotent restore — needs
+  the daily driver; the fake cannot prove niri-event timing.~~ done 2026-09-16 (soak green end-to-end via scripts/soak-test.sh)
 - **Terminal ground truth (ROADMAP Q3)** — needs maintainer input on daily
   drivers.
-- **`spawn_single_window` blocking IPC on the async runtime** — new finding this
+- ~~**`spawn_single_window` blocking IPC on the async runtime** — new finding this
   session (it serializes all spawns on current-thread runtimes; fine on the
-  production multi-thread runtime). Logged, not fixed.
-- **WindowLayout capture (session-format v5)** — unblocked upstream, needs
-  design. Not started.
-- **Spawn-timeout exponential backoff** in the restore retry loop (ROADMAP).
-- **Benchmark re-run**: `restore_burst` was not re-executed this session
+  production multi-thread runtime). Logged, not fixed.~~ done (v0.6.0 — spawn_single_window and apply_window_placement route through niri_send/spawn_blocking)
+- ~~**WindowLayout capture (session-format v5)** — unblocked upstream, needs
+  design. Not started.~~ done (v0.6.0 — session-format v5 layout capture; applying it at restore remains a ROADMAP idea)
+- ~~**Spawn-timeout exponential backoff** in the restore retry loop (ROADMAP).~~ done (v0.6.0 — next_retry_delay, capped exponential)
+- ~~**Benchmark re-run**: `restore_burst` was not re-executed this session
   (restore path untouched, but the claim "no perf regression" is asserted from
-  reasoning, not measurement).
+  reasoning, not measurement).~~ done (re-run twice since — 100.4 ms/window unchanged, latest 2026-09-16)
 
 ## d) TOTALLY FUCKED UP
 

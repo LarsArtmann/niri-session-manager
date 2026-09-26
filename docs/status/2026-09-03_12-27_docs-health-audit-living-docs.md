@@ -119,56 +119,56 @@ _Impact-sorted brainstorm. Items 1–31 already live in TODO_LIST.md (cited by T
 
 | #  | Task                                                                                                  | Impact | Effort | Home         |
 | -- | ----------------------------------------------------------------------------------------------------- | ------ | ------ | ------------ |
-| 1  | Count-based idempotent restore (T1)                                                                   | High   | Med    | TODO_LIST    |
-| 2  | Serialize same-app spawns — workspace-swap race (T2)                                                  | High   | Med    | TODO_LIST    |
-| 3  | main() refactor + regression tests for 0.4.0 fixes (T3)                                               | High   | Med    | TODO_LIST    |
-| 4  | Fake-socket IPC integration harness (T4)                                                              | High   | High   | TODO_LIST    |
-| 5  | Version 0.4.1 + release + SystemNix pin bump (T5)                                                     | High   | Low    | TODO_LIST    |
-| 6  | niri event-stream reactive saves (T6)                                                                 | High   | High   | TODO_LIST    |
-| 7  | Restore outcome type — kill dry_run branching (T7)                                                    | Med    | Med    | TODO_LIST    |
-| 8  | fsync parent dir in atomic_write (T8)                                                                 | Med    | Low    | TODO_LIST    |
-| 9  | Verify terminal flags vs real CLIs (T9)                                                               | Med    | Low    | TODO_LIST    |
-| 10 | Focus restoration (T10)                                                                               | Med    | Med    | TODO_LIST    |
-| 11 | module.nix `maxRestoreWindows` option (T11)                                                           | Med    | Low    | TODO_LIST    |
-| 12 | Restore retry-loop injection test (T12)                                                               | Med    | Med    | TODO_LIST    |
-| 13 | Multi-monitor output matching (T13)                                                                   | Med    | High   | TODO_LIST    |
-| 14 | cargo audit + dep refresh (T14)                                                                       | Low    | Low    | TODO_LIST    |
-| 15 | cleanup_old_backups tests (T15)                                                                       | Low    | Low    | TODO_LIST    |
-| 16 | dedupe PID-crossing-app edge tests (T16)                                                              | Low    | Low    | TODO_LIST    |
-| 17 | Property tests for serialization (T17)                                                                | Low    | Med    | TODO_LIST    |
-| 18 | Dry-run output snapshot test (T18)                                                                    | Low    | Low    | TODO_LIST    |
-| 19 | `--config-file` override (T19)                                                                        | Low    | Low    | TODO_LIST    |
-| 20 | restore-marker staleness cleanup (T20)                                                                | Low    | Low    | TODO_LIST    |
-| 21 | Zero-terminals-matched warning (T21)                                                                  | Low    | Low    | TODO_LIST    |
-| 22 | `--version` smoke test in CI (T22)                                                                    | Low    | Low    | TODO_LIST    |
-| 23 | Health-check subcommand (T23)                                                                         | Low    | Low    | TODO_LIST    |
-| 24 | CI badge (T24)                                                                                        | Low    | Low    | TODO_LIST    |
-| 25 | CONTRIBUTING.md (T25)                                                                                 | Low    | Low    | TODO_LIST    |
-| 26 | cargo-deny in CI (T26)                                                                                | Low    | Low    | TODO_LIST    |
-| 27 | idx=Some(0) clamp-vs-skip decision (T27)                                                              | Low    | Low    | TODO_LIST    |
-| 28 | max_walk_depth bound check (T28)                                                                      | Low    | Low    | TODO_LIST    |
-| 29 | Example session.json in docs/ (T29)                                                                   | Low    | Low    | TODO_LIST    |
-| 30 | SHELL-unset test handling (T30)                                                                       | Low    | Low    | TODO_LIST    |
-| 31 | `--restore` / `--save-only` run modes (T31)                                                           | Low    | Low    | TODO_LIST    |
-| 32 | Decide SESSION_FORMAT_VERSION 3→4 (ROADMAP Q4, 2 months stale)                                        | Med    | 5 min  | ROADMAP→TODO |
-| 33 | CI docs-freshness job: grep test counts + CLI-flag count vs README/AGENTS                             | Med    | Low    | new          |
-| 34 | Internal-link + file:line citation linter for md docs                                                 | Med    | Low    | new          |
-| 35 | Annotate-evidence policy paragraph in AGENTS.md                                                       | Low    | 15 min | new          |
-| 36 | Note the 5-of-7 module-options asymmetry in README options table                                      | Low    | 10 min | new          |
-| 37 | 0.2.0 CHANGELOG archaeology or honest shortening                                                      | Low    | 30 min | new          |
-| 38 | Real commit messages for hand-work (daemon makes citation archaeology expensive)                      | Med    | —      | process      |
-| 39 | Pre-release re-verification checklist for every 🟡 FEATURES status                                    | Med    | Low    | new          |
-| 40 | Post-archive sanity: confirm docs-health ANNOTATE recognizes `docs/status/archived/` on future passes | Low    | 10 min | new          |
-| 41 | systemd sleep.target hook (save on suspend/hibernate)                                                 | Med    | Med    | ROADMAP-fuel |
-| 42 | Fuzz session.json parser (serde edge cases)                                                           | Low    | Med    | ROADMAP-fuel |
-| 43 | Benchmark restore burst (20+ windows) for semaphore tuning                                            | Low    | Med    | ROADMAP-fuel |
-| 44 | Session export/import CLI (backup before risky ops)                                                   | Low    | Med    | ROADMAP-fuel |
-| 45 | Workspace-aware save throttling (skip saves when layout unchanged)                                    | Med    | Med    | ROADMAP-fuel |
-| 46 | Evaluate niri upstream session features for overlap → possible non-goal additions                     | Med    | Low    | ROADMAP      |
-| 47 | aarch64 / `--all-systems` flake check in CI                                                           | Low    | Low    | ROADMAP      |
-| 48 | crates.io publish + release automation (cargo-release)                                                | Low    | Med    | ROADMAP      |
-| 49 | DMS session-state display spike                                                                       | Low    | Med    | ROADMAP      |
-| 50 | docs/DOMAIN_LANGUAGE.md if domain vocabulary grows beyond AGENTS.md                                   | Low    | Low    | defer        |
+| ~~1~~  | ~~Count-based idempotent restore (T1)~~ done — 0.5.0 plan_spawns (workspace-first, count-capped idempotent restore) | ~~High~~ | ~~Med~~ | ~~TODO_LIST~~ |
+| ~~2~~  | ~~Serialize same-app spawns — workspace-swap race (T2)~~ done — 0.5.0 SpawnLimiter per-app serialization | ~~High~~ | ~~Med~~ | ~~TODO_LIST~~ |
+| ~~3~~  | ~~main() refactor + regression tests for 0.4.0 fixes (T3)~~ done — 0.6.0 behavior-frozen module split | ~~High~~ | ~~Med~~ | ~~TODO_LIST~~ |
+| ~~4~~  | ~~Fake-socket IPC integration harness (T4)~~ done — 0.5.0 src/fake_niri.rs real-IPC harness | ~~High~~ | ~~High~~ | ~~TODO_LIST~~ |
+| ~~5~~  | ~~Version 0.4.1 + release + SystemNix pin bump (T5)~~ done — v0.4.1 released 2026-09-03; the chain reached v0.6.2 (deployed) | ~~High~~ | ~~Low~~ | ~~TODO_LIST~~ |
+| ~~6~~  | ~~niri event-stream reactive saves (T6)~~ done — 0.5.0 event-stream reactive saves | ~~High~~ | ~~High~~ | ~~TODO_LIST~~ |
+| ~~7~~  | ~~Restore outcome type — kill dry_run branching (T7)~~ done — RestoreOutcome enum (M13) | ~~Med~~ | ~~Med~~ | ~~TODO_LIST~~ |
+| ~~8~~  | ~~fsync parent dir in atomic_write (T8)~~ done — parent-directory fsync in atomic_write + test | ~~Med~~ | ~~Low~~ | ~~TODO_LIST~~ |
+| ~~9~~  | ~~Verify terminal flags vs real CLIs (T9)~~ done — doc-verified 2026-09-04; live carrier restores 2026-09-16 | ~~Med~~ | ~~Low~~ | ~~TODO_LIST~~ |
+| ~~10~~ | ~~Focus restoration (T10)~~ done — 0.5.0 focus restoration (final focus pass since 0.6.0) | ~~Med~~ | ~~Med~~ | ~~TODO_LIST~~ |
+| ~~11~~ | ~~module.nix `maxRestoreWindows` option (T11)~~ done — M21 maxRestoreWindows module option | ~~Med~~ | ~~Low~~ | ~~TODO_LIST~~ |
+| ~~12~~ | ~~Restore retry-loop injection test (T12)~~ done — fake-harness retry-failure injection test | ~~Med~~ | ~~Med~~ | ~~TODO_LIST~~ |
+| ~~13~~ | ~~Multi-monitor output matching (T13)~~ done — workspace-hosting output fallback; position/EDID proven impossible via niri IPC | ~~Med~~ | ~~High~~ | ~~TODO_LIST~~ |
+| ~~14~~ | ~~cargo audit + dep refresh (T14)~~ done — cargo-audit clean (2026-09-04); cargo-deny in devshell + CI | ~~Low~~ | ~~Low~~ | ~~TODO_LIST~~ |
+| ~~15~~ | ~~cleanup_old_backups tests (T15)~~ done — M16 cleanup_old_backups tests | ~~Low~~ | ~~Low~~ | ~~TODO_LIST~~ |
+| ~~16~~ | ~~dedupe PID-crossing-app edge tests (T16)~~ done — M16 dedupe PID-crossing-app tests | ~~Low~~ | ~~Low~~ | ~~TODO_LIST~~ |
+| ~~17~~ | ~~Property tests for serialization (T17)~~ done — M17 proptest round-trips + fuzz | ~~Low~~ | ~~Med~~ | ~~TODO_LIST~~ |
+| ~~18~~ | ~~Dry-run output snapshot test (T18)~~ done — M18 dry-run regression tests | ~~Low~~ | ~~Low~~ | ~~TODO_LIST~~ |
+| ~~19~~ | ~~`--config-file` override (T19)~~ done — M19 --config-file | ~~Low~~ | ~~Low~~ | ~~TODO_LIST~~ |
+| ~~20~~ | ~~restore-marker staleness cleanup (T20)~~ done — M20 stale-marker pruning | ~~Low~~ | ~~Low~~ | ~~TODO_LIST~~ |
+| ~~21~~ | ~~Zero-terminals-matched warning (T21)~~ done — M20 zero-terminals-matched warning | ~~Low~~ | ~~Low~~ | ~~TODO_LIST~~ |
+| ~~22~~ | ~~`--version` smoke test in CI (T22)~~ done — M22 CI --version smoke | ~~Low~~ | ~~Low~~ | ~~TODO_LIST~~ |
+| ~~23~~ | ~~Health-check subcommand (T23)~~ done — M22 --health-check | ~~Low~~ | ~~Low~~ | ~~TODO_LIST~~ |
+| ~~24~~ | ~~CI badge (T24)~~ done — Checks badge live in README | ~~Low~~ | ~~Low~~ | ~~TODO_LIST~~ |
+| ~~25~~ | ~~CONTRIBUTING.md (T25)~~ done — M25 CONTRIBUTING.md | ~~Low~~ | ~~Low~~ | ~~TODO_LIST~~ |
+| ~~26~~ | ~~cargo-deny in CI (T26)~~ done — M23 cargo-deny CI step | ~~Low~~ | ~~Low~~ | ~~TODO_LIST~~ |
+| ~~27~~ | ~~idx=Some(0) clamp-vs-skip decision (T27)~~ done — M18 idx-0 skip decision (workspace_reference) | ~~Low~~ | ~~Low~~ | ~~TODO_LIST~~ |
+| ~~28~~ | ~~max_walk_depth bound check (T28)~~ done — M18 max_walk_depth validation | ~~Low~~ | ~~Low~~ | ~~TODO_LIST~~ |
+| ~~29~~ | ~~Example session.json in docs/ (T29)~~ done — M24 docs/example-session.json (now v5, guard-tested) | ~~Low~~ | ~~Low~~ | ~~TODO_LIST~~ |
+| ~~30~~ | ~~SHELL-unset test handling (T30)~~ done — M16 SHELL-unset fallback test | ~~Low~~ | ~~Low~~ | ~~TODO_LIST~~ |
+| ~~31~~ | ~~`--restore` / `--save-only` run modes (T31)~~ done — M19 --restore/--save-only run modes | ~~Low~~ | ~~Low~~ | ~~TODO_LIST~~ |
+| ~~32~~ | ~~Decide SESSION_FORMAT_VERSION 3→4 (ROADMAP Q4, 2 months stale)~~ done — Q4 resolved (v4, then v5 in 0.6.0); descriptive, not enforced | ~~Med~~ | ~~5 min~~ | ~~ROADMAP→TODO~~ |
+| ~~33~~ | ~~CI docs-freshness job: grep test counts + CLI-flag count vs README/AGENTS~~ done — docs-citations.sh (file:line + links) is the CI docs-freshness gate; count-greps deliberately dropped | ~~Med~~ | ~~Low~~ | ~~new~~ |
+| ~~34~~ | ~~Internal-link + file:line citation linter for md docs~~ done — scripts/docs-citations.sh + CI step | ~~Med~~ | ~~Low~~ | ~~new~~ |
+| ~~35~~ | ~~Annotate-evidence policy paragraph in AGENTS.md~~ done — dropped — the docs-health annotate tooling + skill encode the policy; a repo-local paragraph was judged redundant | ~~Low~~ | ~~15 min~~ | ~~new~~ |
+| ~~36~~ | ~~Note the 5-of-7 module-options asymmetry in README options table~~ done — README states the mirror and the dryRun CLI-only rationale | ~~Low~~ | ~~10 min~~ | ~~new~~ |
+| ~~37~~ | ~~0.2.0 CHANGELOG archaeology or honest shortening~~ done — wont | ~~Low~~ | ~~30 min~~ | ~~new~~ |
+| ~~38~~ | ~~Real commit messages for hand-work (daemon makes citation archaeology expensive)~~ done — wont | ~~Med~~ | ~~—~~ | ~~process~~ |
+| ~~39~~ | ~~Pre-release re-verification checklist for every 🟡 FEATURES status~~ done — CONTRIBUTING carries the release process; evolved through the 0.5.0-0.6.2 releases | ~~Med~~ | ~~Low~~ | ~~new~~ |
+| ~~40~~ | ~~Post-archive sanity: confirm docs-health ANNOTATE recognizes `docs/status/archived/` on future passes~~ done — the annotate scripts handle archived/ paths (used in later passes incl. 2026-09-26) | ~~Low~~ | ~~10 min~~ | ~~new~~ |
+| ~~41~~ | ~~systemd sleep.target hook (save on suspend/hibernate)~~ done — M26 saveOnSuspend sleep.target oneshot | ~~Med~~ | ~~Med~~ | ~~ROADMAP-fuel~~ |
+| ~~42~~ | ~~Fuzz session.json parser (serde edge cases)~~ done — M17 arbitrary-input parse fuzz | ~~Low~~ | ~~Med~~ | ~~ROADMAP-fuel~~ |
+| ~~43~~ | ~~Benchmark restore burst (20+ windows) for semaphore tuning~~ done — M29 restore_burst benchmark + docs/benchmarks | ~~Low~~ | ~~Med~~ | ~~ROADMAP-fuel~~ |
+| ~~44~~ | ~~Session export/import CLI (backup before risky ops)~~ done — M29 --export/--import with validation | ~~Low~~ | ~~Med~~ | ~~ROADMAP-fuel~~ |
+| ~~45~~ | ~~Workspace-aware save throttling (skip saves when layout unchanged)~~ done — M28 byte-identical save throttling | ~~Med~~ | ~~Med~~ | ~~ROADMAP-fuel~~ |
+| ~~46~~ | ~~Evaluate niri upstream session features for overlap → possible non-goal additions~~ done — M27 upstream-overlap non-goals + re-check rule | ~~Med~~ | ~~Low~~ | ~~ROADMAP~~ |
+| ~~47~~ | ~~aarch64 / `--all-systems` flake check in CI~~ done — routed to ROADMAP (--all-systems idea, still open) | ~~Low~~ | ~~Low~~ | ~~ROADMAP~~ |
+| ~~48~~ | ~~crates.io publish + release automation (cargo-release)~~ done — decided — evaluated and deferred (ROADMAP non-goals) | ~~Low~~ | ~~Med~~ | ~~ROADMAP~~ |
+| ~~49~~ | ~~DMS session-state display spike~~ done — decided — deferred (ROADMAP non-goals) | ~~Low~~ | ~~Med~~ | ~~ROADMAP~~ |
+| ~~50~~ | ~~docs/DOMAIN_LANGUAGE.md if domain vocabulary grows beyond AGENTS.md~~ done — decided — deferred (ROADMAP non-goals) | ~~Low~~ | ~~Low~~ | ~~defer~~ |
 
 ---
 

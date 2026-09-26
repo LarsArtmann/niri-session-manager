@@ -32,36 +32,36 @@
 
 | #  | Item                           | What exists                   | What's missing                                                                                                                                                           |
 | -- | ------------------------------ | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 1  | CI end-to-end proof            | steps written locally         | never pushed → GitHub Actions has never run cargo-deny, the citation linter, or the version smoke; badge URL unverified against the live repo                            |
-| 2  | `deny.toml` correctness        | config file exists            | **cargo-deny itself was never executed locally** — the license allow-list is untested against the real dep tree                                                          |
-| 3  | Reactive saves                 | shipped + tested happy path   | polling-fallback branch untestable (60s floor); reconnect is fixed 1s, no backoff; graceful reader shutdown missing                                                      |
-| 4  | Idempotent restore             | fully implemented + tested    | same-app spawn **order** (vs non-overlap) untested; window-closed-between-restores scenario untested; `--save-only` harness test missing                                 |
+| ~~1~~  | ~~CI end-to-end proof~~ done — first real CI run 2026-09-15 (workflow_dispatch 34990898129, green end-to-end); README badge live | ~~steps written locally~~ | ~~never pushed → GitHub Actions has never run cargo-deny, the citation linter, or the version smoke; badge URL unverified against the live repo~~ |
+| ~~2~~  | ~~`deny.toml` correctness~~ done — cargo-deny green locally (devshell) and in CI; the licenses failure was fixed 2026-09-06 | ~~config file exists~~ | ~~**cargo-deny itself was never executed locally** — the license allow-list is untested against the real dep tree~~ |
+| ~~3~~  | ~~Reactive saves~~ done — 0.5.0 shipped the capped exponential backoff, graceful reader shutdown, and an injectable fallback interval with tests | ~~shipped + tested happy path~~ | ~~polling-fallback branch untestable (60s floor); reconnect is fixed 1s, no backoff; graceful reader shutdown missing~~ |
+| ~~4~~  | ~~Idempotent restore~~ done — 0.5.0 added same-app sequencing, window-closed re-restore, and the --save-only harness test | ~~fully implemented + tested~~ | ~~same-app spawn **order** (vs non-overlap) untested; window-closed-between-restores scenario untested; `--save-only` harness test missing~~ |
 | 5  | Suspend hook                   | module + service defined      | never exercised against systemd on real hardware (`systemd-analyze verify` not run; NIRI_SOCKET availability in the user manager at sleep time is assumed, not verified) |
 | 6  | Benchmark methodology          | real numbers + doc            | not wired into CI or a release checklist; no regression threshold                                                                                                        |
-| 7  | Terminal profiles              | doc-verified 2026-09-04       | no real-binary execution tests; daily-driver terminals (Q3) still unknown → can't rank must-not-regress                                                                  |
+| ~~7~~  | ~~Terminal profiles~~ done — doc-verified 2026-09-04; live carrier restores 2026-09-16 (ghostty/kitty/foot/alacritty, 12/12+ each) | ~~doc-verified 2026-09-04~~ | ~~no real-binary execution tests; daily-driver terminals (Q3) still unknown → can't rank must-not-regress~~ |
 | 8  | CONTRIBUTING release checklist | written                       | doesn't include "run cargo-deny locally" / benchmark steps learned this session                                                                                          |
-| 9  | AGENTS/FEATURES accuracy       | rewritten and mostly verified | one overclaim slipped through (see d.7)                                                                                                                                  |
-| 10 | Release 0.5.0                  | CHANGELOG section ready       | tag/push blocked on your decision (asked twice, still unanswered)                                                                                                        |
+| ~~9~~  | ~~AGENTS/FEATURES accuracy~~ done — the parent-dir fsync is covered by atomic_write_survives_and_syncs_parent_directory, so the FEATURES tested claim now holds | ~~rewritten and mostly verified~~ | ~~one overclaim slipped through (see d.7)~~ |
+| ~~10~~ | ~~Release 0.5.0~~ done — v0.5.0 tagged + pushed 2026-09-15 | ~~CHANGELOG section ready~~ | ~~tag/push blocked on your decision (asked twice, still unanswered)~~ |
 
 ## c) NOT STARTED
 
 | #  | Item                                                                                  | Why it matters                                                                                           |
 | -- | ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| 1  | Soak test of reactive saves + idempotent restore on the real daily-driver machine     | the fake server cannot prove real niri event timing; this is the highest-value validation left           |
-| 2  | `main.rs` split into modules (~3400 lines now)                                        | boundaries are clean now; every new feature makes the split more expensive                               |
-| 3  | Graceful event-reader shutdown (socket read timeout / join-with-timeout)              | currently an aborted task leaves a `spawn_blocking` reader blocked until process exit — harmless, sloppy |
-| 4  | Capped exponential backoff for event-stream reconnects                                | fixed 1s hammering on a dead socket                                                                      |
-| 5  | Make polling-fallback testable (injectable interval) + test                           | the one untested branch of the save loop                                                                 |
-| 6  | Window-size capture                                                                   | still blocked on upstream niri geometry IPC — watch only                                                 |
+| ~~1~~  | ~~Soak test of reactive saves + idempotent restore on the real daily-driver machine~~ done — 2026-09-16 — soak green end-to-end via scripts/soak-test.sh | ~~the fake server cannot prove real niri event timing; this is the highest-value validation left~~ |
+| ~~2~~  | ~~`main.rs` split into modules (~3400 lines now)~~ done — 2026-09-15 — behavior-frozen module split | ~~boundaries are clean now; every new feature makes the split more expensive~~ |
+| ~~3~~  | ~~Graceful event-reader shutdown (socket read timeout / join-with-timeout)~~ done — 0.5.0 — graceful event-reader shutdown (EventConnection + watch signal) | ~~currently an aborted task leaves a `spawn_blocking` reader blocked until process exit — harmless, sloppy~~ |
+| ~~4~~  | ~~Capped exponential backoff for event-stream reconnects~~ done — 0.5.0 — capped exponential reconnect backoff | ~~fixed 1s hammering on a dead socket~~ |
+| ~~5~~  | ~~Make polling-fallback testable (injectable interval) + test~~ done — 0.5.0 — injectable polling-fallback interval + test | ~~the one untested branch of the save loop~~ |
+| ~~6~~  | ~~Window-size capture~~ done — capture shipped in v0.6.0 (session-format v5); application stays a ROADMAP idea | ~~still blocked on upstream niri geometry IPC — watch only~~ |
 | 7  | Duplicate-window dedup on save (distinct from single-instance)                        | small correctness win                                                                                    |
 | 8  | Config hot-reload (inotify)                                                           | restart picks up changes today; nice-to-have                                                             |
 | 9  | systemd `Type=notify` readiness                                                       | operability                                                                                              |
 | 10 | SSH suspend guard, per-app restore delay tuning, `--migrate` command                  | raw ideas, untouched                                                                                     |
 | 11 | macOS build-only CI job, `nix flake check --all-systems` (aarch64)                    | CI breadth                                                                                               |
 | 12 | Coverage reporting in CI                                                              | unknown coverage %                                                                                       |
-| 13 | CI cargo build cache                                                                  | every run rebuilds the proptest tree (~2 min)                                                            |
+| ~~13~~ | ~~CI cargo build cache~~ done — 0.5.0 — CI caches cargo builds (Swatinem/rust-cache) | ~~every run rebuilds the proptest tree (~2 min)~~ |
 | 14 | `docs-citations.sh`: add `CONTRIBUTING.md` (and planning docs) to the checked set     | gap in the linter's coverage                                                                             |
-| 15 | Contract test proving `docs/example-session.json` parses with the current serde model | the example is hand-written and NEVER machine-validated — a docs lie waiting to happen                   |
+| ~~15~~ | ~~Contract test proving `docs/example-session.json` parses with the current serde model~~ done — example_session_doc_deserializes guards the example (and caught the nix source-filter bug on day one) | ~~the example is hand-written and NEVER machine-validated — a docs lie waiting to happen~~ |
 
 ## d) TOTALLY FUCKED UP (own it)
 
