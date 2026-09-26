@@ -166,4 +166,4 @@ Items 1–17 are **already filed in TODO_LIST this session** (evidence cited the
 
 ---
 
-_Verification state at writing: docs pass complete; 139 tests + 1 ignored green (×2), clippy `--all-features --all-targets` clean, fmt clean, `nix build` + `nix flake check` green, docs-citations green, markdownlint 0 errors, archive gates clean, `--version` 0.6.2. Deployed service healthy on 0.6.2 (fresh `session.json`, multi-day backup trail). Working tree carried by the auto-commit daemon; no explicit commits made (not authorized). Point-in-time snapshot — historical evidence, not current truth._
+*Verification state at writing: docs pass complete; 139 tests + 1 ignored green (×2), clippy `--all-features --all-targets` clean, fmt clean, `nix build` + `nix flake check` green, docs-citations green, markdownlint 0 errors, archive gates clean, `--version` 0.6.2. Deployed service healthy on 0.6.2 (fresh `session.json`, multi-day backup trail). Working tree carried by the auto-commit daemon; no explicit commits made (not authorized). Point-in-time snapshot — historical evidence, not current truth.*
