@@ -111,7 +111,7 @@ Behavior-frozen module split (2026-09-15; formerly one ~3.7k-line `main.rs`):
 ## Docs map
 
 - `README.md` (user-facing), `FEATURES.md` (honest feature status), `TODO_LIST.md` (open bounded work), `ROADMAP.md` (vision + resolved/open questions), `CHANGELOG.md` (per-version changes), `CONTRIBUTING.md` (process + rules). Keep all in sync with code; done TODO items move to CHANGELOG.
-- `docs/planning/` holds the executed Pareto plan; `docs/status/*.md` are annotated point-in-time reports (archived under `docs/status/archived/` once fully resolved) — historical evidence, not current truth.
+- `docs/planning/` holds the executed Pareto plan (archived under `docs/planning/archived/` once fully executed); `docs/status/*.md` are annotated point-in-time reports (archived under `docs/status/archived/` once fully resolved) — historical evidence, not current truth.
 - `docs/example-session.json` shows the current format; `docs/benchmarks/restore-burst.md` records benchmark methodology + numbers.
 
 ## Known Issues (open, pre-existing or accepted)

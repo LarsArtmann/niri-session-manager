@@ -43,28 +43,28 @@
 
 ## b) PARTIALLY DONE
 
-| # | What                                                                                                                                                                               | Remaining                                                                                            |
-| - | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| ~~1~~ | ~~**M24 format version** — `SESSION_FORMAT_VERSION = 4` is in code with the decision documented in-code (descriptive, not enforced; v1–3 load via aliases)~~ done — the 11-13 session completed M24 (example-session.json, CHANGELOG entry, Q4 recorded RESOLVED) | ~~`docs/example-session.json`; CHANGELOG entry; ROADMAP Q4 written as resolved~~ |
-| ~~2~~ | ~~**M28 save throttling** — byte-identical captures skip backup rotation and write; the harness test now passes (it was failing _because_ the edit had been silently lost — see d.1)~~ done — verified — nothing functional remained | ~~nothing functional; feature could later hash instead of full-compare (unnecessary today)~~ |
-| ~~3~~ | ~~**M12 reactive saves** — event path is tested end-to-end~~ done — 0.5.0 shipped the backoff, graceful reader shutdown, and testable fallback branch | ~~the polling-fallback branch is untested (real 60s+ wait); reconnect backoff is a fixed 1s~~ |
-| ~~4~~ | ~~**M26 suspend hook** — `--save-once` exists~~ done — the module.nix sleep.target unit shipped (M26) | ~~the module.nix `sleep.target` unit is not written yet~~ |
-| ~~5~~ | ~~**Gates Q1/Q2/Q4** — Q1 resolved by releasing 0.4.1; Q2 resolved (workspace-first + count cap, in-code); Q4 decided in code~~ done — ROADMAP records Q1/Q2/Q4 RESOLVED with rationale | ~~ROADMAP "Open Questions" section still lists all four as pending — one editing pass~~ |
-| ~~6~~ | ~~**Living docs** — untouched on purpose until the work landed (anti-Verschlimmbesser, per the plan)~~ done — the 11-13 final living-docs phase executed | ~~the whole "Final" phase: TODO_LIST / CHANGELOG `[Unreleased]` / FEATURES / README / AGENTS / ROADMAP~~ |
+| #     | What                                                                                                                                                                                                                                                              | Remaining                                                                                                |
+| -     | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------                                                                                | ----------------------------------------------------------------------------------------------------     |
+| ~~1~~ | ~~**M24 format version** — `SESSION_FORMAT_VERSION = 4` is in code with the decision documented in-code (descriptive, not enforced; v1–3 load via aliases)~~ done — the 11-13 session completed M24 (example-session.json, CHANGELOG entry, Q4 recorded RESOLVED) | ~~`docs/example-session.json`; CHANGELOG entry; ROADMAP Q4 written as resolved~~                         |
+| ~~2~~ | ~~**M28 save throttling** — byte-identical captures skip backup rotation and write; the harness test now passes (it was failing _because_ the edit had been silently lost — see d.1)~~ done — verified — nothing functional remained                              | ~~nothing functional; feature could later hash instead of full-compare (unnecessary today)~~             |
+| ~~3~~ | ~~**M12 reactive saves** — event path is tested end-to-end~~ done — 0.5.0 shipped the backoff, graceful reader shutdown, and testable fallback branch                                                                                                             | ~~the polling-fallback branch is untested (real 60s+ wait); reconnect backoff is a fixed 1s~~            |
+| ~~4~~ | ~~**M26 suspend hook** — `--save-once` exists~~ done — the module.nix sleep.target unit shipped (M26)                                                                                                                                                             | ~~the module.nix `sleep.target` unit is not written yet~~                                                |
+| ~~5~~ | ~~**Gates Q1/Q2/Q4** — Q1 resolved by releasing 0.4.1; Q2 resolved (workspace-first + count cap, in-code); Q4 decided in code~~ done — ROADMAP records Q1/Q2/Q4 RESOLVED with rationale                                                                           | ~~ROADMAP "Open Questions" section still lists all four as pending — one editing pass~~                  |
+| ~~6~~ | ~~**Living docs** — untouched on purpose until the work landed (anti-Verschlimmbesser, per the plan)~~ done — the 11-13 final living-docs phase executed                                                                                                          | ~~the whole "Final" phase: TODO_LIST / CHANGELOG `[Unreleased]` / FEATURES / README / AGENTS / ROADMAP~~ |
 
 ## c) NOT STARTED
 
-| #  | What                                                                                                           |
-| -- | -------------------------------------------------------------------------------------------------------------- |
-| ~~1~~  | ~~**M21**: `maxRestoreWindows` module option + README asymmetry note~~ done — (M21, 11-13) |
-| ~~2~~  | ~~**M22**: `--health-check`, CI `--version` smoke, README CI badge~~ done — (M22, 11-13) |
-| ~~3~~  | ~~**M23**: CI docs-freshness job, file:line citation linter, cargo-deny~~ done — (M23, 11-13) |
-| ~~4~~  | ~~**M15**: cargo audit + dependency refresh report~~ done — (M15, 11-13) |
-| ~~5~~  | ~~**M25**: CONTRIBUTING.md + evidence/release-checklist/commit policies into AGENTS.md + 0.2.0 CHANGELOG cleanup~~ done — (M25, 11-13) |
-| ~~6~~  | ~~**M27**: niri upstream overlap evaluation → non-goals~~ done — (M27, 11-13) |
-| ~~7~~  | ~~**M29**: `--export` / `--import` + restore burst benchmark~~ done — (M29, 11-13) |
-| ~~8~~  | ~~**M30**: crates.io / DMS / DOMAIN_LANGUAGE evaluations~~ done — (M30, 11-13) |
-| ~~9~~  | ~~**M10**: terminal flags verification against real CLI docs (wezterm/ghostty/foot/kitty/alacritty)~~ done — (M10, 11-13) |
+| #      | What                                                                                                                                          |
+| --     | --------------------------------------------------------------------------------------------------------------                                |
+| ~~1~~  | ~~**M21**: `maxRestoreWindows` module option + README asymmetry note~~ done — (M21, 11-13)                                                    |
+| ~~2~~  | ~~**M22**: `--health-check`, CI `--version` smoke, README CI badge~~ done — (M22, 11-13)                                                      |
+| ~~3~~  | ~~**M23**: CI docs-freshness job, file:line citation linter, cargo-deny~~ done — (M23, 11-13)                                                 |
+| ~~4~~  | ~~**M15**: cargo audit + dependency refresh report~~ done — (M15, 11-13)                                                                      |
+| ~~5~~  | ~~**M25**: CONTRIBUTING.md + evidence/release-checklist/commit policies into AGENTS.md + 0.2.0 CHANGELOG cleanup~~ done — (M25, 11-13)        |
+| ~~6~~  | ~~**M27**: niri upstream overlap evaluation → non-goals~~ done — (M27, 11-13)                                                                 |
+| ~~7~~  | ~~**M29**: `--export` / `--import` + restore burst benchmark~~ done — (M29, 11-13)                                                            |
+| ~~8~~  | ~~**M30**: crates.io / DMS / DOMAIN_LANGUAGE evaluations~~ done — (M30, 11-13)                                                                |
+| ~~9~~  | ~~**M10**: terminal flags verification against real CLI docs (wezterm/ghostty/foot/kitty/alacritty)~~ done — (M10, 11-13)                     |
 | ~~10~~ | ~~**Final phase**: all living docs + full gate re-run + release decision for the new work~~ done — (the 11-13 final phase + full gate re-run) |
 
 ## d) TOTALLY FUCKED UP (what I forgot, and what cost time)
