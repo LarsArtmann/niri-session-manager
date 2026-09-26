@@ -73,12 +73,12 @@ actionlint clean (both workflows) · cargo-deny green via devshell ·
 
 ## c) Open (unchanged, user-gated)
 
-1. **Tag + push v0.6.1** (origin/main + tag; never pushed without explicit
+1. ~~**Tag + push v0.6.1** (origin/main + tag; never pushed without explicit
    go). Note: [Unreleased] now carries post-0.6.1 work — tag as-is for the
-   hotfix, or fold [Unreleased] into a 0.6.2 later.
-2. **SystemNix re-pin + restart** (the deployed service still runs v0.6.0
-   with a stale session.json since 08:25 — F1 recurrence).
-3. `/mnt/buildcache` policy (now 91 % — someone freed ~20 G during this
-   session; zram swap is unaffected by the old swapfile-emergency).
-4. Terminal close-after-exit UX (ROADMAP open question 5).
-5. wezterm carrier (blocked on install) + overnight deployed soak.
+   hotfix, or fold [Unreleased] into a 0.6.2 later.~~ Done 2026-09-16: folded into **v0.6.2** (one coherent release with the alacritty fix), tagged + pushed as `89a3c6d`; Checks green on the tag.
+2. ~~**SystemNix re-pin + restart** (the deployed service still runs v0.6.0
+   with a stale session.json since 08:25 — F1 recurrence).~~ Done: re-pinned; deployed service runs 0.6.2 with a fresh `session.json` (observed 2026-09-26).
+3. ~~`/mnt/buildcache` policy (now 91 % — someone freed ~20 G during this
+   session; zram swap is unaffected by the old swapfile-emergency).~~ Moot — observed 51 % (106 G/220 G) on 2026-09-26; no policy decision needed.
+4. ~~Terminal close-after-exit UX (ROADMAP open question 5).~~ Routed — stays as ROADMAP Open Question 5 (maintainer decision, deliberately open).
+5. ~~wezterm carrier (blocked on install) + overnight deployed soak.~~ Split: the overnight deployed soak is satisfied by production observation (0.6.2 saving since the re-pin, verified 2026-09-26); the wezterm carrier remains blocked on install (ROADMAP Q3 carrier set).

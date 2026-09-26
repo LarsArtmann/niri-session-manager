@@ -40,8 +40,8 @@ F9 and F10 explain why the deployed 0.4.1's session files never contained termin
 
 ## Open items (moved to `TODO_LIST.md`)
 
-- **Deploy alert (observed 12:40, post-soak)**: the service was re-pinned and restarted at 2026-09-16 08:25 — to **v0.6.0**, which predates this fix batch (the deployed `session.json` has been stale since 08:25: F1 recurrence in production). Tagging v0.6.1 and re-pinning SystemNix to it is the actual fix for production; the acceptance check is a fresh `session.json` mtime within minutes of the restart.
+- ~~**Deploy alert (observed 12:40, post-soak)**: the service was re-pinned and restarted at 2026-09-16 08:25 — to **v0.6.0**, which predates this fix batch (the deployed `session.json` has been stale since 08:25: F1 recurrence in production). Tagging v0.6.1 and re-pinning SystemNix to it is the actual fix for production; the acceptance check is a fresh `session.json` mtime within minutes of the restart.~~ Resolved 2026-09-16/26: the batch shipped as **v0.6.2** (tag pushed, `89a3c6d`), SystemNix re-pinned, and the deployed service runs 0.6.2 with a fresh `session.json` (observed 2026-09-26).
 
-- Unattended durability soak (30–60 min or overnight via the deployed service) after the v0.6.1 deploy — the user's real acceptance check is a fresh `session.json` mtime within minutes of the upgrade.
-- ROADMAP Q3 narrows: ghostty + kitty now have real-binary coverage; foot/wezterm/alacritty remain doc-verified.
-- The 2026-09-15 report's P2 hardening list (health-check staleness warning, reconnect rate-limited logging, `--protocol-probe` subcommand) remains open.
+- ~~Unattended durability soak (30–60 min or overnight via the deployed service) after the v0.6.1 deploy — the user's real acceptance check is a fresh `session.json` mtime within minutes of the upgrade.~~ Satisfied by production: the deployed 0.6.2 service has been saving since the re-pin (fresh mtime + multi-day backup trail observed 2026-09-26); the local 36-min leg ran green 2026-09-16.
+- ~~ROADMAP Q3 narrows: ghostty + kitty now have real-binary coverage; foot/wezterm/alacritty remain doc-verified.~~ Superseded 2026-09-16: foot and alacritty also live-verified (12/12, 13/13); only the maintainer daily-driver preference remains, tracked as ROADMAP Q3.
+- ~~The 2026-09-15 report's P2 hardening list (health-check staleness warning, reconnect rate-limited logging, `--protocol-probe` subcommand) remains open.~~ All three shipped in 0.6.2 (`session_staleness_warning`, `flapping_summary`, `--protocol-probe`).
