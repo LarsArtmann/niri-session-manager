@@ -59,9 +59,6 @@ Make the service observable and debuggable without reading its source.
 Raw ideas:
 
 - systemd notify readiness signaling (`Type=notify`)
-- ~~Spawn-timeout exponential backoff~~ done 2026-09-15: `--retry-delay` is the base of a capped exponential backoff (`next_retry_delay`, see `CHANGELOG.md` [0.6.0])
-- SSH suspend guard integration
-- journald log-volume review (per-window restore info lines)
 - Dry-run output designed for humans _and_ for machine diffing
 - IPC health/status endpoint beyond the `--health-check` one-shot
 - `--print-config` support/debug mode (dump effective CLI+TOML config)
