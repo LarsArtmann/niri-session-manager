@@ -61,9 +61,9 @@ Nothing is broken — but ranked honestly, worst first:
 
 ### Verify/release-critical
 
-1. Re-run `restore_burst` benchmark post-focus-pass; compare against 100.4 ms/window (see `docs/benchmarks/`).
-2. Push `v0.5.0` + `v0.6.0` tags (needs your go-ahead).
-3. Pin `v0.6.0` in SystemNix after push; verify the consumer build.
+1. ~~Re-run `restore_burst` benchmark post-focus-pass; compare against 100.4 ms/window (see `docs/benchmarks/`).~~ done — re-run twice since (spawn_blocking rewrite, IPC rewrite) — 100.4 ms/window unchanged, latest 2026-09-16
+2. ~~Push `v0.5.0` + `v0.6.0` tags (needs your go-ahead).~~ done — both tags on origin (verified 2026-09-26)
+3. ~~Pin `v0.6.0` in SystemNix after push; verify the consumer build.~~ done — SystemNix pinned v0.6.0 on 2026-09-16, then v0.6.2 — deployed service saving, verified 2026-09-26
 4. Record the ~16s suite timing budget in AGENTS.md (closed debt from this session).
 5. Add release checklist doc (verification parity list used this session) — `docs/release-checklist.md`.
 
@@ -73,9 +73,9 @@ Nothing is broken — but ranked honestly, worst first:
 8. Policy + validation for multiple `is_focused` windows in one session file (today: last confirmed wins silently in the final pass).
 9. Property test for the boot-gate matrix (boot_id × marker × session-existence).
 10. Audit `--restore --dry-run` combined-flag semantics test (dry-run must win).
-11. Verify import-with-corrupt-archive coverage is complete (`run_import` tests exist; confirm the failure branches).
+11. ~~Verify import-with-corrupt-archive coverage is complete (`run_import` tests exist; confirm the failure branches).~~ done — import_refuses_invalid_session_data_and_keeps_live_file pins the failure branch (src/tests.rs:1506)
 12. Benchmark for the _save_ path: debounce latency under an event storm (no benchmark exists).
-13. Soak-test playbook doc (`docs/soak-playbook.md`) so the High-Impact soak is executable, not aspirational.
+13. ~~Soak-test playbook doc (`docs/soak-playbook.md`) so the High-Impact soak is executable, not aspirational.~~ done — superseded — scripts/soak-test.sh IS the executable playbook (shipped 2026-09-16)
 
 **CI/tooling**
 14. CI guard reads the count from the test step instead of re-running.
@@ -83,11 +83,11 @@ Nothing is broken — but ranked honestly, worst first:
 16. `scripts/test-count.sh` as the single source for `expected=`.
 17. `--all-systems` flake check in CI (aarch64 currently omitted).
 18. Release workflow: tag push → GitHub Release with notes from CHANGELOG.
-19. Investigate upstream treefmt-nix `nixfmt-rfc-style` deprecation warning (accepted, revisit when nixpkgs moves).
+19. ~~Investigate upstream treefmt-nix `nixfmt-rfc-style` deprecation warning (accepted, revisit when nixpkgs moves).~~ done — accepted and documented in AGENTS.md Known Issues (upstream deprecation, do not re-investigate)
 20. vulnix/buildflow timeout triage (build-time stdenv advisories, killed at >2 min) — formalize the acceptance in `deny.toml`/buildflow config.
 
 **Product/UX**
-21. Restore-side application of captured v5 geometry (the big one; gated on soak).
+21. ~~Restore-side application of captured v5 geometry (the big one; gated on soak).~~ done — routed to ROADMAP (geometry application idea, gated on soak-data review)
 22. `--health-check --json` for scripting/monitoring.
 23. Shell completions + man page (`clap_complete`).
 24. NixOS module: expose session/data dir option (paths are fixed today).
@@ -99,26 +99,26 @@ Nothing is broken — but ranked honestly, worst first:
 30. Asciinema/GIF of `--dry-run` output for the README.
 
 **Design/future (ROADMAP fuel)**
-31. Watch niri-ipc for viewport/Wayland geometry APIs to enrich v5 capture.
-32. Multi-monitor placement beyond output fallback (position/EDID) when IPC grows.
+31. ~~Watch niri-ipc for viewport/Wayland geometry APIs to enrich v5 capture.~~ done — routed to ROADMAP (watch niri upstream IPC)
+32. ~~Multi-monitor placement beyond output fallback (position/EDID) when IPC grows.~~ done — routed to ROADMAP (multi-monitor soak scenarios)
 33. Revisit poll-fallback default now that reactive saves exist (is interval polling still wanted by default?).
-34. Terminal profile runtime verification harness (Q3): scripted launch of each profile against the fake server.
+34. ~~Terminal profile runtime verification harness (Q3): scripted launch of each profile against the fake server.~~ done — superseded — real-binary carrier coverage via CARRIER= soak phase C (kitty/foot/alacritty live 12/12+)
 35. `RestoreOutcome`/marker state machine doc (single page describing gate → restore → marker lifecycle).
 36. Consider structured journald fields (tracing `span!` fields) for machine-readable daemon logs.
 37. Evaluate session-file fsync frequency vs battery (atomic_write does full dir fsync per save).
 38. Metrics counter for backup-fallback recoveries (how often does corruption actually happen).
-39. Formalize accepted jscpd clones list so new ones are distinguishable.
+39. ~~Formalize accepted jscpd clones list so new ones are distinguishable.~~ done — in-code rationale comments + AGENTS.md Known Issues mark the accepted clones
 40. Cargo metadata polish (description/keywords) before any crates.io thought.
-41. Cross-compile smoke for aarch64 (flake omits it; catch breakage before users do).
-42. Explore `inotify`-style niri config reload hook integration (session file consumers).
+41. ~~Cross-compile smoke for aarch64 (flake omits it; catch breakage before users do).~~ done — routed to ROADMAP (--all-systems)
+42. ~~Explore `inotify`-style niri config reload hook integration (session file consumers).~~ done — routed to ROADMAP (config hot-reload idea)
 43. Add `--explain` mode printing the plan_spawns decision per window (debug aid).
 44. Consider windows-workspace-name validation warnings at save time (saved names that niri no longer has).
-45. Document `SpawnLimiter` numbers (5 global / per-app serialization) in README performance notes.
+45. ~~Document `SpawnLimiter` numbers (5 global / per-app serialization) in README performance notes.~~ done — README Reliability documents rate-limited spawning (max 5 concurrent)
 46. Evaluate whether `max_walk_depth` default is right for deep terminal stacks (soak-informed).
 47. Add changelog compare-links footer (`[0.5.0]: .../compare/...`) for keep-a-changelog completeness.
 48. Decide versioning policy doc (0.x minor-vs-patch rules actually applied this release) — `CONTRIBUTING.md`.
 49. Clean up the daemon-vs-explicit commit seam (post-commit hook or daemon ignore-window after explicit commits).
-50. Archive resolved status docs under `docs/status/archived/` per the docs-health convention once annotated.
+50. ~~Archive resolved status docs under `docs/status/archived/` per the docs-health convention once annotated.~~ done — the 2026-09-26 docs-health pass annotated and archived the fully resolved reports
 
 ## g) Questions I cannot figure out myself (3)
 
