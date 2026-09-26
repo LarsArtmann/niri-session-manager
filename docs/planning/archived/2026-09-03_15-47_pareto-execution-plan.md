@@ -245,3 +245,18 @@ Items 32–50 are **plan-only** until you approve routing them into `TODO_LIST.m
 ## Verification per phase
 
 Every phase ends with: `cargo test` (suite green) + `cargo clippy --all-features` (0 issues) + `cargo fmt --all -- --check` + `nix flake check`. Release phase additionally: `nix build` + tag push. No phase starts if the previous one's gate is red — **do not break the build**.
+
+---
+
+## Resolution (2026-09-26)
+
+All 30 medium tasks (M1–M30) were executed across the 2026-09-03 → 2026-09-16
+sessions — the completion pass is recorded in
+`docs/status/archived/2026-09-04_11-13_pareto-plan-complete-status.md`, and
+everything since shipped through the 0.5.0 → 0.6.2 releases (see
+`CHANGELOG.md`). Decision gates: Q1 resolved by releasing immediately (0.4.1),
+Q2 resolved as workspace-first matching with a per-app count cap, Q4 resolved
+in code (descriptive version; since superseded by v5). Q3 (terminal ground
+truth) remains the one open gate, tracked in `ROADMAP.md` Open Questions.
+Archived 2026-09-26 (docs-health pass) — every planned task shipped or was
+consciously decided.
