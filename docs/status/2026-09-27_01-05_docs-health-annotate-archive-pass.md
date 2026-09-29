@@ -23,27 +23,27 @@
 11. **`scripts/md-table-realign.py` created** — the display-width-aware markdown table realigner (East Asian Wide = 2 cols, variation selectors = 0) that the 15-04 report said belonged in `scripts/` before it rotted as a heredoc. Landed because 180+ strike edits broke MD060 pipe alignment in 7 files and a one-off would just rot again. The matching TODO row was removed in the same pass. Realigned 7 files; idempotent.
 12. **Harvest ledger** (dispositions for everything pulled forward this pass):
 
-| Source (report §item)                                   | Disposition        | Destination / reason                                                                      |
-| ------------------------------------------------------- | ------------------ | ----------------------------------------------------------------------------------------- |
-| 15-04 f8/e2 soak end-of-run cleanup                     | new row            | TODO_LIST Low (verified still open: no trap/EXIT in script)                               |
-| 15-04 f9 table realigner → scripts/                     | done in this pass  | `scripts/md-table-realign.py`; TODO row removed                                           |
-| 15-04 f11 config-version hint                           | new row            | TODO_LIST Low                                                                             |
-| 15-04 f13 clap conflict tests                           | new row            | TODO_LIST Low (verified: attrs exist, no tests)                                           |
-| 15-04 f15 fixture-refresh procedure                     | new row            | TODO_LIST Low                                                                             |
-| 15-04 f18 actionlint CI step                            | new row            | TODO_LIST Low (verified absent)                                                           |
-| 18-16 d2/f6 Node20 action pins                          | new row (High)     | TODO_LIST High (verified pins unchanged; run annotations cited)                           |
-| 18-16 c5/f11 stable-toolchain CI leg                    | new row            | TODO_LIST Medium                                                                          |
-| 18-16 f20 `--locked`                                    | new row            | TODO_LIST Low (verified absent)                                                           |
-| 18-16 f28 concurrency group                             | new row            | TODO_LIST Low (verified absent)                                                           |
-| 18-16 f34 backoff-reset regression test                 | new row            | TODO_LIST Low (verified: only the doubling/cap unit test exists)                          |
-| 18-16 f33 full template-sync test                       | new row            | TODO_LIST Low (only the Alacritty pins are asserted)                                      |
-| 15-26 item 7 health-check layout-line test              | new row            | TODO_LIST Low (verified: line exists at `src/main.rs:129`, no field test)                 |
-| 15-26 f47 CHANGELOG compare-links                       | new row            | TODO_LIST Low (verified absent)                                                           |
-| 18-16 f36 module.nix 6-of-7 comment                     | new row            | TODO_LIST Low (verified absent)                                                           |
-| 18-16 f45 vulnix quarterly re-triage                    | new row            | TODO_LIST Low                                                                             |
-| 18-16 f12 rust-version comment                          | done in this pass  | reworded in Cargo.toml                                                                    |
-| 12-48 [Unreleased] canary fix unlogged                  | done in this pass  | CHANGELOG `[Unreleased] → Fixed`                                                          |
-| 09-58/12-48/14-40 deploy + soak + /tmp items            | closed by evidence | inline annotations citing 2026-09-26 observations                                         |
+| Source (report §item)                        | Disposition        | Destination / reason                                                      |
+| -------------------------------------------- | ------------------ | ------------------------------------------------------------------------- |
+| 15-04 f8/e2 soak end-of-run cleanup          | new row            | TODO_LIST Low (verified still open: no trap/EXIT in script)               |
+| 15-04 f9 table realigner → scripts/          | done in this pass  | `scripts/md-table-realign.py`; TODO row removed                           |
+| 15-04 f11 config-version hint                | new row            | TODO_LIST Low                                                             |
+| 15-04 f13 clap conflict tests                | new row            | TODO_LIST Low (verified: attrs exist, no tests)                           |
+| 15-04 f15 fixture-refresh procedure          | new row            | TODO_LIST Low                                                             |
+| 15-04 f18 actionlint CI step                 | new row            | TODO_LIST Low (verified absent)                                           |
+| 18-16 d2/f6 Node20 action pins               | new row (High)     | TODO_LIST High (verified pins unchanged; run annotations cited)           |
+| 18-16 c5/f11 stable-toolchain CI leg         | new row            | TODO_LIST Medium                                                          |
+| 18-16 f20 `--locked`                         | new row            | TODO_LIST Low (verified absent)                                           |
+| 18-16 f28 concurrency group                  | new row            | TODO_LIST Low (verified absent)                                           |
+| 18-16 f34 backoff-reset regression test      | new row            | TODO_LIST Low (verified: only the doubling/cap unit test exists)          |
+| 18-16 f33 full template-sync test            | new row            | TODO_LIST Low (only the Alacritty pins are asserted)                      |
+| 15-26 item 7 health-check layout-line test   | new row            | TODO_LIST Low (verified: line exists at `src/main.rs:129`, no field test) |
+| 15-26 f47 CHANGELOG compare-links            | new row            | TODO_LIST Low (verified absent)                                           |
+| 18-16 f36 module.nix 6-of-7 comment          | new row            | TODO_LIST Low (verified absent)                                           |
+| 18-16 f45 vulnix quarterly re-triage         | new row            | TODO_LIST Low                                                             |
+| 18-16 f12 rust-version comment               | done in this pass  | reworded in Cargo.toml                                                    |
+| 12-48 [Unreleased] canary fix unlogged       | done in this pass  | CHANGELOG `[Unreleased] → Fixed`                                          |
+| 09-58/12-48/14-40 deploy + soak + /tmp items | closed by evidence | inline annotations citing 2026-09-26 observations                         |
 
 13. **Gates at close (all green):** `cargo test` 139 passed + 1 ignored (×2 runs) · `cargo clippy --all-features --all-targets` clean · `cargo fmt --all -- --check` clean · `nix build` · `nix flake check` · `scripts/docs-citations.sh` all resolve · markdownlint 0 errors across all tracked `.md` (CI's exact invocation) · `--version` = 0.6.2 · archive completeness gates (grep + check-rows) clean.
 
@@ -84,7 +84,7 @@
 - **Generate-then-verify applies to tool INPUTS, not just outputs.** The d1 corruption was in my own `new_string`. Any batch edit whose replacement text I compose (rather than copy from a fresh read) owes a grep-assert of the expected marker in the same command — I did this for the risky edits and it saved me exactly once. Make it unconditional.
 - **My own scripts are writers too.** Freshness tracking doesn't know `annotate-rows.py` from a teammate; re-read after every tool that touches the file, mine included.
 - **Read the tool's full interface before the first live run** — the `w` kind existed; the dry-run would have shown me the rendered marker and I skipped inspecting it for those two rows.
-- **Mechanical bulk edits change lint shapes.** A pass that rewrites 180 table cells owes a realignment (or a lint) step *in the plan*, not at gate time.
+- **Mechanical bulk edits change lint shapes.** A pass that rewrites 180 table cells owes a realignment (or a lint) step _in the plan_, not at gate time.
 - **Sibling files are not interchangeable.** Two reports from the same day still have different section shapes; re-view the exact section before editing it.
 
 ### What could I have done better?
@@ -166,4 +166,4 @@ Items 1–17 are **already filed in TODO_LIST this session** (evidence cited the
 
 ---
 
-*Verification state at writing: docs pass complete; 139 tests + 1 ignored green (×2), clippy `--all-features --all-targets` clean, fmt clean, `nix build` + `nix flake check` green, docs-citations green, markdownlint 0 errors, archive gates clean, `--version` 0.6.2. Deployed service healthy on 0.6.2 (fresh `session.json`, multi-day backup trail). Working tree carried by the auto-commit daemon; no explicit commits made (not authorized). Point-in-time snapshot — historical evidence, not current truth.*
+_Verification state at writing: docs pass complete; 139 tests + 1 ignored green (×2), clippy `--all-features --all-targets` clean, fmt clean, `nix build` + `nix flake check` green, docs-citations green, markdownlint 0 errors, archive gates clean, `--version` 0.6.2. Deployed service healthy on 0.6.2 (fresh `session.json`, multi-day backup trail). Working tree carried by the auto-commit daemon; no explicit commits made (not authorized). Point-in-time snapshot — historical evidence, not current truth._

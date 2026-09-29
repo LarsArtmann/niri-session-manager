@@ -49,7 +49,10 @@ def is_separator(cells: list[str]) -> bool:
 
 
 def render(cells: list[str], widths: list[int]) -> str:
-    padded = [f" {c.strip()}{' ' * (w - display_width(c.strip()))} " for c, w in zip(cells, widths)]
+    padded = [
+        f" {c.strip()}{' ' * (w - display_width(c.strip()))} "
+        for c, w in zip(cells, widths)
+    ]
     return "|" + "|".join(padded) + "|"
 
 
@@ -82,10 +85,7 @@ def realign(text: str) -> str:
             continue
         ncols = max(len(c) for c in block)
         block = [c + [""] * (ncols - len(c)) for c in block]
-        widths = [
-            max(display_width(c[j].strip()) for c in block)
-            for j in range(ncols)
-        ]
+        widths = [max(display_width(c[j].strip()) for c in block) for j in range(ncols)]
         for cells in block:
             out.append(render(cells, widths))
     return "\n".join(out)

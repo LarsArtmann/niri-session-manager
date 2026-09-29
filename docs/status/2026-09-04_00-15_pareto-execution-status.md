@@ -44,7 +44,7 @@
 ## b) PARTIALLY DONE
 
 | #     | What                                                                                                                                                                                                                                                              | Remaining                                                                                                |
-| -     | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------                                                                                | ----------------------------------------------------------------------------------------------------     |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
 | ~~1~~ | ~~**M24 format version** — `SESSION_FORMAT_VERSION = 4` is in code with the decision documented in-code (descriptive, not enforced; v1–3 load via aliases)~~ done — the 11-13 session completed M24 (example-session.json, CHANGELOG entry, Q4 recorded RESOLVED) | ~~`docs/example-session.json`; CHANGELOG entry; ROADMAP Q4 written as resolved~~                         |
 | ~~2~~ | ~~**M28 save throttling** — byte-identical captures skip backup rotation and write; the harness test now passes (it was failing _because_ the edit had been silently lost — see d.1)~~ done — verified — nothing functional remained                              | ~~nothing functional; feature could later hash instead of full-compare (unnecessary today)~~             |
 | ~~3~~ | ~~**M12 reactive saves** — event path is tested end-to-end~~ done — 0.5.0 shipped the backoff, graceful reader shutdown, and testable fallback branch                                                                                                             | ~~the polling-fallback branch is untested (real 60s+ wait); reconnect backoff is a fixed 1s~~            |
@@ -55,7 +55,7 @@
 ## c) NOT STARTED
 
 | #      | What                                                                                                                                          |
-| --     | --------------------------------------------------------------------------------------------------------------                                |
+| ------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
 | ~~1~~  | ~~**M21**: `maxRestoreWindows` module option + README asymmetry note~~ done — (M21, 11-13)                                                    |
 | ~~2~~  | ~~**M22**: `--health-check`, CI `--version` smoke, README CI badge~~ done — (M22, 11-13)                                                      |
 | ~~3~~  | ~~**M23**: CI docs-freshness job, file:line citation linter, cargo-deny~~ done — (M23, 11-13)                                                 |
