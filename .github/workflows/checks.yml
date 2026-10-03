@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Pipewire
         run: |
           sudo add-apt-repository ppa:pipewire-debian/pipewire-upstream
@@ -53,11 +53,11 @@ jobs:
       - name: Version smoke
         run: cargo run --quiet -- --version
       - name: Check Nix flake inputs
-        uses: DeterminateSystems/flake-checker-action@491a84a640191f0cf972bc81af69b0f6c96ed392 # v4
+        uses: DeterminateSystems/flake-checker-action@786422608c7bded2bbc9741ad9f91356842bf520 # v14
         with:
           send-statistics: false
       - name: Install Lix
-        uses: DeterminateSystems/nix-installer-action@da36cb69b1c3247ad7a1f931ebfd954a1105ef14 # v14
+        uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
         with:
           diagnostic-endpoint: ""
           source-url: https://install.lix.systems/lix/lix-installer-x86_64-linux

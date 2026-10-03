@@ -21,7 +21,7 @@
         "aarch64-darwin"
       ];
       forAllSystems =
-        function: nixpkgs.lib.genAttrs (import systems) (system: function nixpkgs.legacyPackages.${system});
+        function: nixpkgs.lib.genAttrs systems (system: function nixpkgs.legacyPackages.${system});
       treefmtEval = forAllSystems (
         pkgs:
         treefmt-nix.lib.evalModule pkgs (_: {
